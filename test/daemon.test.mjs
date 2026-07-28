@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { DaemonClient } from '../lib/daemon-client.mjs';
+
+test('daemon owns an authenticated loopback API and shares assistant events', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-daemon-'));
+  process.env.JARVIS_DATA_DIR = directory;
+  process.env.JARVIS_MODEL_DIR = path.join(directory, 'models');
+  const wakeDirectory = path.join(process.env.JARVIS_MODEL_DIR, 'wake', 'hey-jarvis');
+  await fs.mkdir(wakeDirectory, { recursive: true });
+  await fs.writeFile(path.join(wakeDirectory, 'hey_jarvis_v0.1.onnx'), 'fixture-model');
+  const { startDaemon } = await import('../lib/daemon.mjs');
+  const daemon = await startDaemon({ port: 0, token: 'test-token' });
+  try {
+    const denied = await fetch(`http://127.0.0.1:${daemon.port}/api/health`);
+    assert.equal(denied.status, 401);
+    const allowed = await fetch(`http://127.0.0.1:${daemon.port}/api/health`, { headers: { 'x-jarvis-token': 'test-token' } });
+    assert.equal(allowed.status, 200);
+    const asset = await fetch(`http://127.0.0.1:${daemon.port}/api/voice-assets/wake.hey-jarvis/hey_jarvis_v0.1.onnx`);
+    assert.equal(await asset.text(), 'fixture-model');
+    const received = new Promise((resolve) => daemon.jarvis.events.subscribe(resolve));
+    daemon.jarvis.events.publish({ type: 'voice-state', state: 'muted' });
+    assert.equal((await received).type, 'voice-state');
+    const transcriptEvent = new Promise((resolve) => daemon.jarvis.events.subscribe(resolve));
+    const transcript = await fetch(`http://127.0.0.1:${daemon.port}/api/voice/transcript`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ kind: 'final', text: 'turn on the lights' }) });
+    assert.deepEqual(await transcript.json(), { accepted: true });
+    assert.equal((await transcriptEvent).type, 'final-transcript');
+    const activeVoiceSession = daemon.jarvis.db.setting('voice.active-session');
+    assert.equal(activeVoiceSession.conversationId, null);
+    assert.equal(activeVoiceSession.state, 'thinking');
+    assert.ok(activeVoiceSession.lastTranscriptAt);
+    daemon.jarvis.voice.setSession('shared-voice-session', 'speaking');
+    assert.equal(daemon.jarvis.db.setting('voice.active-session').conversationId, 'shared-voice-session');
+    assert.equal(daemon.jarvis.db.setting('voice.active-session').state, 'speaking');
+    const muteEvent = new Promise((resolve) => daemon.jarvis.events.subscribe(resolve));
+    daemon.jarvis.voice.setEnabled(false);
+    const muted = await muteEvent;
+    assert.equal(muted.type, 'voice-state');
+    assert.equal(muted.state, 'muted');
+    assert.equal(muted.enabled, false);
+    const voice = await fetch(`http://127.0.0.1:${daemon.port}/api/voice/voice`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ voice: 'not-a-local-voice' }) });
+    assert.equal(voice.status, 400);
+    assert.equal((await fetch(`http://127.0.0.1:${daemon.port}/api/voice`, { headers: { 'x-jarvis-token': 'test-token' } })).status, 200);
+    const streamAbort = new AbortController(); const events = new DaemonClient({ port: daemon.port, token: 'test-token' }).events(streamAbort.signal); const eventNext = events.next();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    daemon.jarvis.voice.event({ type: 'playback', state: 'started' });
+    assert.equal((await eventNext).value.type, 'playback');
+    streamAbort.abort();
+    await events.return?.();
+    const model = await fetch(`http://127.0.0.1:${daemon.port}/api/settings/model`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ provider: 'ollama', model: 'qwen3:8b' }) });
+    assert.equal(model.status, 204);
+    assert.equal(daemon.jarvis.modelFor('ollama'), 'qwen3:8b');
+  } finally {
+    await daemon.close();
+    await fs.rm(directory, { recursive: true, force: true });
+    delete process.env.JARVIS_DATA_DIR;
+    delete process.env.JARVIS_MODEL_DIR;
+  }
+});

@@ -1,8 +1,42 @@
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
+# Gitignore for JARVISvX (Mark 10)
+## Ignore all .env files except example file
 .env*
 !.env.example
+
+## Non-Durable App Data
+cache/**
+!cache/.gitkeep
+cache/electron/**
+!cache/electron/.gitkeep
+cache/npm/**
+!cache/npm/.gitkeep
+cache/temp/**
+!cache/temp/.gitkeep
+
+## App Build Artifacts
+node_modules/**
+!node_modules/.gitkeep
+dist/**
+!dist/.gitkeep
+
+## Durable User Data
+data/**
+!data/.gitkeep
+data/sql-db/**
+!data/sql-db/.gitkeep
+data/electron-profile/**
+!data/electron-profile/.gitkeep
+
+## Voice Models
+models/**
+!models/.gitkeep
+models/stt/**
+!models/stt/.gitkeep
+models/tts/**
+!models/tts/.gitkeep
+models/wake/**
+!models/wake/.gitkeep
+
+## 
+.DS_Store
+*.log
