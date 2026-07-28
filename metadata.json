@@ -1,0 +1,6 @@
+{
+  "name": "JARVIS Personal Assistant",
+  "description": "Voice-first, local-first personal AI assistant with model orchestration, MCP skills, CLI, and self-evolution",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
