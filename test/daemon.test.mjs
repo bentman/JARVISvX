@@ -12,6 +12,10 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
   const wakeDirectory = path.join(process.env.JARVIS_MODEL_DIR, 'wake', 'hey-jarvis');
   await fs.mkdir(wakeDirectory, { recursive: true });
   await fs.writeFile(path.join(wakeDirectory, 'hey_jarvis_v0.1.onnx'), 'fixture-model');
+  const ttsDirectory = path.join(process.env.JARVIS_MODEL_DIR, 'tts', 'kokoro-v1');
+  await fs.mkdir(ttsDirectory, { recursive: true });
+  await fs.writeFile(path.join(ttsDirectory, 'kokoro-v1.0.onnx'), 'fixture-model');
+  await fs.writeFile(path.join(ttsDirectory, 'voices-v1.0.bin'), 'fixture-voices');
   const { startDaemon } = await import('../lib/daemon.mjs');
   const daemon = await startDaemon({ port: 0, token: 'test-token' });
   try {

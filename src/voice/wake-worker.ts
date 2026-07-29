@@ -1,26 +1,21 @@
 import * as ort from 'onnxruntime-web';
 import { env, pipeline } from '@huggingface/transformers';
-import { KokoroTTS, TextSplitterStream } from 'kokoro-js';
 
 type Model = { run: (feeds: Record<string, ort.Tensor>) => Promise<Record<string, ort.Tensor>>; inputNames: string[]; outputNames: string[] };
 let mel: Model; let embedding: Model; let wake: Model;
 let transcriber: any;
-let tts: any; let speech: any; let speechGeneration = 0;
 let audio: number[] = []; let features: Float32Array[] = []; let active = false; let utterance: number[] = []; let silenceFrames = 0; let partialSamples = 0;
 let wakeReady = false; let initialized = false; let processingFrames = false; let pendingFrames: Float32Array[] = [];
-let executionProvider = 'wasm'; let benchmarkedWake = false; let speechStartedAt = 0; let listening = true; let selectedVoice = 'bf_isabella';
+let executionProvider = 'wasm'; let benchmarkedWake = false; let listening = true;
 const threshold = 0.5;
 
 self.onmessage = async ({ data }: MessageEvent) => {
   try {
-    if (data.type === 'init') { listening = data.enabled !== false; selectedVoice = String(data.voice || 'bf_isabella'); return await initialize(data.baseUrl); }
-    if (data.type === 'listening') { listening = Boolean(data.enabled); if (!listening) { active = false; utterance = []; silenceFrames = 0; partialSamples = 0; cancelSpeech(); } return; }
-    if (data.type === 'voice') { selectedVoice = String(data.voice || 'bf_isabella'); cancelSpeech(); return; }
+    if (data.type === 'init') { listening = data.enabled !== false; return await initialize(data.baseUrl); }
+    if (data.type === 'listening') { listening = Boolean(data.enabled); if (!listening) { active = false; utterance = []; silenceFrames = 0; partialSamples = 0; } return; }
     if (data.type === 'audio') { pendingFrames.push(new Float32Array(data.samples)); void drainFrames().catch((error) => postMessage({ type: 'error', message: error.message || String(error) })); return; }
-    if (data.type === 'speak') return await speak(data.token, Boolean(data.done));
-    if (data.type === 'reset' || data.type === 'interrupt') { active = false; utterance = []; silenceFrames = 0; partialSamples = 0; pendingFrames = []; cancelSpeech(); }
-    if (data.type === 'cancel-speech') cancelSpeech();
-    if (data.type === 'capture') { active = true; utterance = []; silenceFrames = 0; partialSamples = 0; cancelSpeech(); }
+    if (data.type === 'reset' || data.type === 'interrupt') { active = false; utterance = []; silenceFrames = 0; partialSamples = 0; pendingFrames = []; }
+    if (data.type === 'capture') { active = true; utterance = []; silenceFrames = 0; partialSamples = 0; }
   } catch (error: any) { postMessage({ type: 'error', message: error.message || String(error) }); }
 };
 
@@ -36,11 +31,8 @@ async function initialize(baseUrl: string) {
   postMessage({ type: 'benchmark', component: 'wake', executionProvider, initializationMs: Math.round(performance.now() - started) });
   env.allowRemoteModels = false; env.allowLocalModels = true; env.localModelPath = `${baseUrl}/`;
   transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'wasm' });
-  const nativeFetch = fetch; self.fetch = ((input: RequestInfo | URL, init?: RequestInit) => { const source = String(input); const marker = 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/'; return nativeFetch(source.startsWith(marker) ? `${baseUrl}/tts.kokoro-runtime/${source.slice(marker.length)}` : input, init); }) as typeof fetch;
-  tts = await KokoroTTS.from_pretrained('tts.kokoro-runtime', { dtype: 'q4f16', device: 'wasm' }); speech = new TextSplitterStream(); initialized = true; void drainSpeech(speechGeneration); void drainFrames().catch((error) => postMessage({ type: 'error', message: error.message || String(error) }));
+  initialized = true; void drainFrames().catch((error) => postMessage({ type: 'error', message: error.message || String(error) }));
 }
-
-function cancelSpeech() { speechGeneration += 1; speech = new TextSplitterStream(); void drainSpeech(speechGeneration); }
 
 async function drainFrames() {
   if (!initialized || processingFrames) return;
@@ -66,8 +58,6 @@ async function processFrame(frame: Float32Array) {
   if (score >= threshold) { active = true; utterance = []; silenceFrames = 0; postMessage({ type: 'wake' }); }
 }
 
-async function speak(token: string, done: boolean) { if (!speech) return; if (token) { if (!speechStartedAt) speechStartedAt = performance.now(); speech.push(token); } if (done) speech.flush(); }
-async function drainSpeech(generation: number) { for await (const item of tts.stream(speech, { voice: selectedVoice })) { if (generation !== speechGeneration) return; const audio = new Float32Array(item.audio.audio); if (speechStartedAt) { postMessage({ type: 'benchmark', component: 'tts', executionProvider: 'wasm', firstAudioMs: Math.round(performance.now() - speechStartedAt) }); speechStartedAt = 0; } (self as any).postMessage({ type: 'sentence-ready', text: item.text || null }); (self as any).postMessage({ type: 'audio', samples: audio, sampleRate: 24000 }, [audio.buffer]); } }
 
 async function wakeScore(samples: Float32Array) {
   const started = performance.now();

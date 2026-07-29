@@ -18,6 +18,8 @@ node_modules/**
 !node_modules/.gitkeep
 dist/**
 !dist/.gitkeep
+release/**
+!release/.gitkeep
 
 ## Durable User Data
 data/**

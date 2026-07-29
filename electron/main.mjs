@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import { startDaemon, daemonDiscovery } from '../lib/daemon.mjs';
 import { DaemonClient } from '../lib/daemon-client.mjs';
 
@@ -17,6 +18,7 @@ app.setPath('sessionData', path.join(electronCache, 'session'));
 app.setPath('logs', path.join(electronCache, 'logs'));
 app.setPath('crashDumps', path.join(electronCache, 'crash-dumps'));
 let window; let tray; let daemon; let quitting = false;
+let ttsWorker; let ttsId = 0; const ttsPending = new Map();
 const headlessVoiceHost = process.argv.includes('--jarvis-daemon');
 const createWindow = async () => {
   const discovery = daemon || await daemonDiscovery();
@@ -36,7 +38,13 @@ app.whenReady().then(async () => {
   await createWindow();
   const icon = nativeImage.createFromPath(iconPath); tray = new Tray(icon); tray.setToolTip('JARVISvX — voice host'); tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Show JARVIS', click: () => window.show() }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }])); tray.on('click', () => window.show());
   ipcMain.handle('jarvis:daemon', () => ({ port: daemon.port, token: daemon.token }));
+  ipcMain.handle('jarvis:tts', (_event, action, payload = {}) => {
+    if (action === 'cancel') { const worker = ttsWorker; ttsWorker = undefined; for (const { reject } of ttsPending.values()) reject(new Error('Local Kokoro synthesis cancelled.')); ttsPending.clear(); return worker?.terminate(); }
+    if (action !== 'synthesize') throw new Error('Unknown local TTS action.'); const worker = getTtsWorker(); const id = ++ttsId;
+    return new Promise((resolve, reject) => { ttsPending.set(id, { resolve, reject }); worker.postMessage({ id, modelPath: path.join(projectRoot, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(projectRoot, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: String(payload.text || ''), voice: String(payload.voice || 'bf_isabella') }); });
+  });
   ipcMain.handle('jarvis:voice', async (_event, action, payload) => { const client = await DaemonClient.connect(); if (action === 'status') return client.voice(); if (action === 'listen') return client.setListening(payload); if (action === 'voice') return client.setVoice(payload); if (action === 'bootstrap') return client.json(`/voice/bootstrap/${payload}`, { method: 'POST', body: '{}' }); throw new Error('Unknown voice action.'); });
 });
 app.on('before-quit', async () => { quitting = true; if (daemon?.close) await daemon.close(); });
 app.on('window-all-closed', (event) => event.preventDefault());
+function getTtsWorker() { if (ttsWorker) return ttsWorker; ttsWorker = new Worker(path.join(here, 'kokoro-onnx-worker.mjs')); ttsWorker.on('message', (message) => { const pending = ttsPending.get(message.id); if (!pending) return; ttsPending.delete(message.id); message.ok ? pending.resolve(message) : pending.reject(new Error(message.error)); }); ttsWorker.on('error', (error) => { for (const { reject } of ttsPending.values()) reject(error); ttsPending.clear(); }); ttsWorker.on('exit', () => { ttsWorker = undefined; }); return ttsWorker; }

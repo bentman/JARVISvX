@@ -18,7 +18,7 @@
     "daemon": "node daemon.mjs",
     "desktop": "electron .",
     "dev:desktop": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:3210 && electron .\"",
-    "package:desktop": "npm run build && electron-builder",
+    "package:desktop": "npm run build && node scripts/package-desktop.mjs",
     "test": "node --test --test-concurrency=1",
     "lint": "tsc --noEmit"
   },
@@ -29,51 +29,29 @@
     "express": "^5.1.0",
     "ink": "^6.8.0",
     "ink-text-input": "^6.0.0",
-    "kokoro-js": "^1.2.1",
     "lucide-react": "^0.468.0",
+    "npyz": "^0.4.2",
     "onnxruntime-web": "^1.22.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "vite": "^7.1.7"
   },
   "devDependencies": {
+    "@electron/packager": "20.0.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
     "concurrently": "^9.1.2",
-    "electron-builder": "^26.0.12",
     "typescript": "^5.9.2"
   },
-  "build": {
-    "appId": "local.jarvisvx.desktop",
-    "productName": "JARVISvX",
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "lib/**/*",
-      "bin/**/*",
-      "daemon.mjs",
-      "package.json"
-    ],
-    "asarUnpack": [
-      "node_modules/onnxruntime-web/**/*"
-    ]
+  "overrides": {
+    "sharp": "0.35.3"
   },
-  "extraResources": [
-    {
-      "from": "src/icon/icon.ico",
-      "to": "icon.ico"
-    },
-    {
-      "from": "src/icon/icon.png",
-      "to": "icon.png"
-    }
-  ],
-  "win": {
-    "icon": "src/icon/icon.ico"
-  },
-  "linux": {
-    "icon": "src/icon/icon.png"
+  "allowScripts": {
+    "electron@39.8.10": true,
+    "esbuild@0.28.1": true,
+    "onnxruntime-node@1.21.0": true,
+    "protobufjs@7.6.5": true
   }
 }
