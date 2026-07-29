@@ -29,7 +29,14 @@ test('voice runtime initializes every model required by wake capture and playbac
   const runtime = new VoiceRuntime({ database: { setting: (_key, fallback) => fallback, setSetting: () => {} }, publish: () => {} });
   runtime.bootstrap = { install: async (id) => { installed.push(id); }, status: async () => installed.map((id) => ({ id, ready: true })) };
   await runtime.initialize();
-  assert.deepEqual(installed, ['wake.hey-jarvis', 'stt.whisper-base-en', 'tts.kokoro-v1']);
+  assert.deepEqual(installed, ['wake.hey-jarvis', 'stt.whisper-base-en', 'tts.kokoro-v1', 'vad.silero-v6']);
+});
+
+test('Silero VAD is a required voice-loop bootstrap model', () => {
+  const vad = voiceModelManifest.find((item) => item.id === 'vad.silero-v6');
+  assert.ok(vad);
+  assert.equal(vad.optional, undefined);
+  assert.deepEqual(vad.files.map(([file]) => file), ['model_quantized.onnx']);
 });
 
 test('voice runtime keeps daemon status available when model bootstrap fails', async () => {
@@ -39,16 +46,17 @@ test('voice runtime keeps daemon status available when model bootstrap fails', a
   await runtime.initialize();
   const status = await runtime.status();
   assert.equal(status.models[0].ready, false);
-  assert.match(status.detail, /Unable to install tts\.kokoro-v1: offline tts\.kokoro-v1/);
+  assert.match(status.detail, /Unable to install vad\.silero-v6: offline vad\.silero-v6/);
   assert.equal(events.at(-1).state, 'bootstrap');
 });
 
-test('voice mode changes are persisted and published for the audio host', () => {
+test('voice mode changes are runtime-only and published for the audio host', () => {
   const settings = new Map(); const events = [];
   const runtime = new VoiceRuntime({ database: { setting: (key, fallback) => settings.has(key) ? settings.get(key) : fallback, setSetting: (key, value) => settings.set(key, value) }, publish: (event) => events.push(event) });
   runtime.setMode('wake');
   runtime.setMode('ptt');
-  assert.equal(settings.get('voice.mode'), 'ptt');
+  assert.equal(runtime.mode, 'ptt');
+  assert.equal(settings.has('voice.mode'), false);
   assert.deepEqual(events.at(-1), { type: 'voice-state', state: 'bootstrap', mode: 'ptt' });
   assert.throws(() => runtime.setMode('always-on'), /Unsupported local voice mode/);
 });
@@ -57,6 +65,9 @@ test('voice transcripts drop blank audio placeholders and wake prefixes', () => 
   const settings = new Map(); const events = [];
   const runtime = new VoiceRuntime({ database: { setting: (key, fallback) => settings.has(key) ? settings.get(key) : fallback, setSetting: (key, value) => settings.set(key, value) }, publish: (event) => events.push(event) });
   assert.equal(cleanVoiceTranscript('[BLANK_AUDIO]'), null);
+  assert.equal(cleanVoiceTranscript('(wooshing sound)'), null);
+  assert.equal(cleanVoiceTranscript('(water splashing)'), null);
+  assert.equal(cleanVoiceTranscript('[breathing]'), null);
   assert.equal(cleanVoiceTranscript('Hey Jarvis'), null);
   assert.equal(cleanVoiceTranscript('Jarvis'), null);
   assert.equal(cleanVoiceTranscript('Hey Jarvis, what is the capital of the United States?'), 'what is the capital of the United States?');

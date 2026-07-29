@@ -50,7 +50,7 @@ export const api = {
   removeRoot: (id: string) => json<{ removed: boolean }>(`/api/workspace-roots/${id}`, { method: 'DELETE' }),
   setProvider: (provider: string) => json<void>('/api/settings/active-provider', { method: 'POST', body: JSON.stringify({ provider }) }),
   setModel: (provider: string, model: string) => json<void>('/api/settings/model', { method: 'POST', body: JSON.stringify({ provider, model }) }),
-  cancel: (id: string) => json<{ cancelled: boolean }>(`/api/chat/${id}/cancel`, { method: 'POST', body: '{}' }),
+  cancel: (id: string, turnId?: string) => json<{ cancelled: boolean }>(`/api/chat/${id}/cancel`, { method: 'POST', body: JSON.stringify({ turnId }) }),
   async *events(signal?: AbortSignal) {
     const config = await setupDaemon();
     const response = await fetch(`${config ? `http://127.0.0.1:${config.port}` : ''}/api/events`, { headers: config ? { 'x-jarvis-token': config.token } : {}, signal });

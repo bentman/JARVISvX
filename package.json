@@ -19,7 +19,7 @@
     "desktop": "electron .",
     "dev:desktop": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:3210 && electron .\"",
     "package:desktop": "npm run build && node scripts/package-desktop.mjs",
-    "test": "node --test --test-concurrency=1 test/daemon.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/model-bootstrap.test.mjs test/providers.test.mjs test/tools.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
+    "test": "node --test --test-concurrency=1 test/application.test.mjs test/daemon.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/model-bootstrap.test.mjs test/providers.test.mjs test/tools.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

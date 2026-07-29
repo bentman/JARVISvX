@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { DaemonClient } from '../lib/daemon-client.mjs';
 import { voiceModelManifest } from '../lib/model-bootstrap.mjs';
 
 function nextEvent(hub) {
@@ -11,6 +10,21 @@ function nextEvent(hub) {
   return new Promise((resolve) => {
     unsubscribe = hub.subscribe((event) => { unsubscribe(); resolve(event); });
   });
+}
+
+async function readSseEvent(reader) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error('Event stream ended before an event was received.');
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split('\n\n'); buffer = frames.pop() || '';
+    for (const frame of frames) {
+      const data = frame.split('\n').find((line) => line.startsWith('data:'));
+      if (data) return JSON.parse(data.slice(5));
+    }
+  }
 }
 
 test('daemon owns an authenticated loopback API and shares assistant events', async () => {
@@ -56,12 +70,20 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
     const voice = await fetch(`http://127.0.0.1:${daemon.port}/api/voice/voice`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ voice: 'not-a-local-voice' }) });
     assert.equal(voice.status, 400);
     assert.equal((await fetch(`http://127.0.0.1:${daemon.port}/api/voice`, { headers: { 'x-jarvis-token': 'test-token' } })).status, 200);
-    const streamAbort = new AbortController(); const events = new DaemonClient({ port: daemon.port, token: 'test-token' }).events(streamAbort.signal); const eventNext = events.next();
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    daemon.jarvis.voice.event({ type: 'playback', state: 'started' });
-    assert.equal((await eventNext).value.type, 'playback');
-    streamAbort.abort();
-    await Promise.race([events.return?.(), new Promise((resolve) => setTimeout(resolve, 100))]);
+    const streamAbort = new AbortController();
+    const stream = await fetch(`http://127.0.0.1:${daemon.port}/api/events`, { headers: { 'x-jarvis-token': 'test-token' }, signal: streamAbort.signal });
+    assert.equal(stream.status, 200);
+    const reader = stream.body.getReader();
+    try {
+      const eventNext = readSseEvent(reader);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      daemon.jarvis.voice.event({ type: 'playback', state: 'started' });
+      assert.equal((await eventNext).type, 'playback');
+    } finally {
+      streamAbort.abort();
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
     const model = await fetch(`http://127.0.0.1:${daemon.port}/api/settings/model`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ provider: 'ollama', model: 'qwen3:8b' }) });
     assert.equal(model.status, 204);
     assert.equal(daemon.jarvis.modelFor('ollama'), 'qwen3:8b');

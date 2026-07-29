@@ -3,14 +3,16 @@ import { env, pipeline } from '@huggingface/transformers';
 
 type Model = { run: (feeds: Record<string, ort.Tensor>) => Promise<Record<string, ort.Tensor>>; inputNames: string[]; outputNames: string[] };
 let mel: Model; let embedding: Model; let wake: Model;
+let vad: Model | null = null; let vadState = new Float32Array(2 * 1 * 128); let vadContext = new Float32Array(64); let vadReady = false;
 let transcriber: any;
 let audio: number[] = []; let preRoll: number[] = []; let features: Float32Array[] = []; let active = false; let utterance: number[] = []; let silenceFrames = 0; let partialSamples = 0;
 let wakeReady = false; let initialized = false; let processingFrames = false; let pendingFrames: Float32Array[] = [];
 let executionProvider = 'wasm'; let benchmarkedWake = false; let listening = true; let mode = 'wake';
 const threshold = 0.5;
 const frameSamples = 1280;
+const vadSamples = 512;
 const preRollSamples = 48_000;
-const wakeCommandPreRollSamples = 9_600;
+const wakeCommandPreRollSamples = 24_000;
 
 self.onmessage = async ({ data }: MessageEvent) => {
   try {
@@ -34,6 +36,7 @@ async function initialize(baseUrl: string) {
     catch { [mel, embedding, wake] = await load('wasm'); }
   } else [mel, embedding, wake] = await load('wasm');
   postMessage({ type: 'benchmark', component: 'wake', executionProvider, initializationMs: Math.round(performance.now() - started) });
+  await initializeVad(baseUrl);
   postMessage({ type: 'loading', message: 'Loading local Whisper speech recognition.' });
   env.allowRemoteModels = false; env.allowLocalModels = true; env.localModelPath = `${baseUrl}/`;
   transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'wasm' });
@@ -52,9 +55,11 @@ async function processFrame(frame: Float32Array) {
   preRoll.push(...frame); if (preRoll.length > preRollSamples) preRoll = preRoll.slice(-preRollSamples);
   if (active) {
     utterance.push(...frame);
-    silenceFrames = rms < 0.012 ? silenceFrames + 1 : 0;
-    if (silenceFrames >= 10 && utterance.length > 3200) { const samples = new Float32Array(utterance); active = mode === 'conversation'; utterance = []; silenceFrames = 0; partialSamples = 0; if (!hasSpeech(samples)) { postMessage({ type: 'transcript', text: '', rawText: '' }); return; } postMessage({ type: 'transcribing', samples: samples.length }); const started = performance.now(); const result = await transcriber(samples); postMessage({ type: 'benchmark', component: 'stt', executionProvider: 'wasm', inferenceMs: Math.round(performance.now() - started), samples: samples.length }); postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() }); }
-    else if (utterance.length >= 32000 && utterance.length - partialSamples >= 32000) { partialSamples = utterance.length; const samples = new Float32Array(utterance); if (!hasSpeech(samples)) return; const partial = await transcriber(samples); const text = cleanTranscript(partial.text); if (text) postMessage({ type: 'partial-transcript', text }); }
+    const speechScore = vadReady ? await vadScore(frame) : null;
+    const quiet = speechScore == null ? rms < 0.012 : speechScore < 0.35 && rms < 0.018;
+    silenceFrames = quiet ? silenceFrames + 1 : 0;
+    if (silenceFrames >= 12 && utterance.length > 8_000) { const samples = new Float32Array(utterance); active = mode === 'conversation'; utterance = []; silenceFrames = 0; partialSamples = 0; if (!(await hasSpeech(samples))) { postMessage({ type: 'transcript', text: '', rawText: '' }); return; } postMessage({ type: 'transcribing', samples: samples.length }); const started = performance.now(); const result = await transcriber(samples); postMessage({ type: 'benchmark', component: 'stt', executionProvider: 'wasm', inferenceMs: Math.round(performance.now() - started), samples: samples.length }); postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() }); }
+    else if (utterance.length >= 48000 && utterance.length - partialSamples >= 48000) { partialSamples = utterance.length; const samples = new Float32Array(utterance); if (!(await hasSpeech(samples))) return; const partial = await transcriber(samples); const text = cleanTranscript(partial.text); if (text) postMessage({ type: 'partial-transcript', text }); }
     return;
   }
   if (mode !== 'wake') return;
@@ -69,6 +74,7 @@ async function processFrame(frame: Float32Array) {
 
 function resetCapture() {
   active = false; utterance = []; silenceFrames = 0; partialSamples = 0;
+  resetVad();
 }
 
 function startCapture(includePreRoll: boolean) {
@@ -76,21 +82,79 @@ function startCapture(includePreRoll: boolean) {
   utterance = includePreRoll ? preRoll.slice(-wakeCommandPreRollSamples) : [];
   silenceFrames = 0;
   partialSamples = 0;
+  resetVad();
 }
 
 function cleanTranscript(text: string) {
-  return String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis\b[\s,.:;-]*/i, '').trim();
+  const cleaned = String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise|wooshing(?: sound)?|wind|breathing)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis\b[\s,.:;-]*/i, '').trim();
+  return /^\s*[\[(]?[a-z\s-]+(?:sound|noise|music|breathing|wind)[\])]?\.?\s*$/i.test(cleaned) ? '' : cleaned;
 }
 
-function hasSpeech(samples: Float32Array) {
-  let voiced = 0; let maxRms = 0;
+async function hasSpeech(samples: Float32Array) {
+  let voiced = 0; let maxRms = 0; let energy = 0;
   for (let offset = 0; offset + frameSamples <= samples.length; offset += frameSamples) {
     const frame = samples.slice(offset, offset + frameSamples);
     const rms = Math.sqrt(frame.reduce((sum, sample) => sum + sample * sample, 0) / frame.length);
-    if (rms >= 0.01) voiced += 1;
+    energy += rms;
+    if (rms >= 0.014) voiced += 1;
     maxRms = Math.max(maxRms, rms);
   }
-  return samples.length >= 8_000 && voiced >= 3 && maxRms >= 0.015;
+  if (vadReady) {
+    const score = await vadSegmentScore(samples);
+    return samples.length >= 12_000 && score >= 0.5 && voiced >= 3 && maxRms >= 0.018;
+  }
+  const avgRms = energy / Math.max(1, Math.floor(samples.length / frameSamples));
+  return samples.length >= 12_000 && voiced >= 5 && maxRms >= 0.022 && avgRms >= 0.008;
+}
+
+async function initializeVad(baseUrl: string) {
+  try {
+    postMessage({ type: 'loading', message: 'Loading optional Silero voice activity detector.' });
+    const bytes = await fetchAsset(`${baseUrl}/vad.silero-v6/model_quantized.onnx`, 'Silero VAD');
+    vad = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] }) as unknown as Model;
+    vadReady = true; resetVad();
+    postMessage({ type: 'benchmark', component: 'vad', executionProvider: 'wasm', status: 'ready' });
+  } catch (error: any) {
+    vad = null; vadReady = false;
+    postMessage({ type: 'benchmark', component: 'vad', executionProvider: 'rms-fallback', status: 'unavailable', message: error.message || String(error) });
+  }
+}
+
+function resetVad() {
+  vadState = new Float32Array(2 * 1 * 128);
+  vadContext = new Float32Array(64);
+}
+
+async function vadSegmentScore(samples: Float32Array) {
+  if (!vadReady) return 0;
+  resetVad();
+  let voiced = 0; let total = 0; let max = 0;
+  for (let offset = 0; offset < samples.length; offset += vadSamples) {
+    const chunk = new Float32Array(vadSamples);
+    chunk.set(samples.slice(offset, offset + vadSamples));
+    const score = await vadScore(chunk);
+    total += score; max = Math.max(max, score); if (score >= 0.5) voiced += 1;
+  }
+  return Math.max(max, voiced >= 4 ? total / Math.max(1, Math.ceil(samples.length / vadSamples)) : 0);
+}
+
+async function vadScore(samples: Float32Array) {
+  if (!vad) return 0;
+  const chunk = new Float32Array(vadSamples);
+  chunk.set(samples.slice(0, vadSamples));
+  const input = new Float32Array(vadContext.length + chunk.length);
+  input.set(vadContext); input.set(chunk, vadContext.length);
+  const feeds = {
+    input: new ort.Tensor('float32', input, [1, input.length]),
+    state: new ort.Tensor('float32', vadState, [2, 1, 128]),
+    sr: new ort.Tensor('int64', BigInt64Array.of(16000n), [])
+  };
+  const result = await vad.run(feeds);
+  const output = result[vad.outputNames[0]].data as Float32Array;
+  const nextState = result[vad.outputNames[1]]?.data as Float32Array | undefined;
+  if (nextState) vadState = new Float32Array(nextState);
+  vadContext = input.slice(-64);
+  return Number(output[0] || 0);
 }
 
 async function fetchAsset(url: string, label: string) {
