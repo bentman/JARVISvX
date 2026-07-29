@@ -61,9 +61,17 @@ header h1 {
 .voice-mute { align-items: center; background: #142b3a; border: 1px solid #295166; border-radius: 8px; color: #c5e7f5; display: flex; font-size: 12px; gap: 6px; min-height: 35px; padding: 8px 10px; }
 .voice-mute:disabled { opacity: .5; }
 .voice-mute svg { height: 15px; width: 15px; }
+.voice-bootstrap { background: #274155; border: 1px solid #4b7a92; border-radius: 8px; color: #e7f3fc; font-size: 12px; min-height: 35px; padding: 8px 10px; }
+.voice-bootstrap:disabled { opacity: .5; }
+.voice-status { color: #b8d5e3; display: grid; font-size: 11px; gap: 2px; max-width: 280px; min-height: 35px; min-width: 220px; place-content: center start; }
+.voice-status b { color: #e7f3fc; font-size: 12px; font-weight: 700; }
+.voice-status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.voice-status-problem b,
+.voice-status-problem span { color: #ffc7c7; }
 
 @media (max-width: 760px) {
   .header-voice-controls { flex-wrap: wrap; width: 100%; }
   .header-voice-controls .provider-picker { flex: 1; }
   .header-voice-controls .provider-picker select { min-width: 0; width: 100%; }
+  .voice-status { max-width: none; width: 100%; }
 }

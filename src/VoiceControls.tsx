@@ -1,4 +1,4 @@
-import { Mic, MicOff } from 'lucide-react';
+import { Mic, MicOff, Volume2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from './api';
 import './voice-diagnostics.css';
@@ -13,11 +13,18 @@ function useVoice() {
 export function VoiceControls() {
   const { voice, refresh } = useVoice(); const [busy, setBusy] = useState(false);
   const ready = voice?.models?.every((item: any) => item.ready);
+  const missing = voice?.models?.filter((item: any) => !item.ready) || [];
+  const problem = ['bootstrap', 'error', 'unavailable'].includes(voice?.state);
   const update = async (action: () => Promise<unknown>) => { setBusy(true); try { await action(); await refresh(); } finally { setBusy(false); } };
+  const bootstrapMissing = () => update(async () => { for (const model of missing) await api.bootstrapVoice(model.id); });
+  const testVoice = () => { window.dispatchEvent(new CustomEvent('jarvis:speak', { detail: { type: 'assistant-token', value: 'Voice test.', conversationId: 'diagnostic-voice-test' } })); window.dispatchEvent(new CustomEvent('jarvis:speak', { detail: { type: 'assistant-complete', conversationId: 'diagnostic-voice-test' } })); };
   return <div className="header-voice-controls">
     <label className="provider-picker">Voice mode<select value={voice?.mode || 'wake'} disabled={busy || !ready} onChange={(event) => void update(() => api.setVoiceMode(event.target.value))}><option value="wake">Wake</option><option value="ptt">Push to talk</option><option value="conversation">Conversation</option></select></label>
     <label className="provider-picker">Voice<select value={voice?.voice || 'bf_isabella'} disabled={busy || !ready} onChange={(event) => void update(() => api.setVoice(event.target.value))}>{(voice?.voices || ['bf_isabella']).map((item: string) => <option key={item} value={item}>{item}</option>)}</select></label>
     <button className="voice-mute" disabled={busy || !ready} onClick={() => void update(() => api.setListening(!voice?.enabled))}>{voice?.enabled ? <><MicOff /> Mute</> : <><Mic /> Unmute</>}</button>
+    <button className="voice-mute" disabled={busy || !ready} onClick={testVoice} title="Play a local Kokoro test phrase"><Volume2 /> Test</button>
+    {missing.length ? <button className="voice-bootstrap" disabled={busy} onClick={() => void bootstrapMissing()}>Install voice assets</button> : null}
+    <div className={`voice-status ${problem ? 'voice-status-problem' : ''}`} title={voice?.detail || voice?.message || ''}><b>{voice?.state || 'loading'}</b><span>{voice?.detail || voice?.message || 'Checking local voice runtime...'}</span></div>
   </div>;
 }
 

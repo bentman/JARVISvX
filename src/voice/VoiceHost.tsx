@@ -12,45 +12,75 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
   const transcriptRef = useRef(onTranscript); const stateRef = useRef(onState); const interruptRef = useRef(onInterrupt);
   const playback = useRef(new Set<AudioBufferSourceNode>()); const audioQueue = useRef<{ samples: Float32Array; rate: number }[]>([]);
   const playing = useRef(false); const playbackGeneration = useRef(0); const bargeFrames = useRef(0); const enabled = useRef(true); const speakingConversation = useRef<string | null>(null);
-  const voice = useRef('bf_isabella'); const sentence = useRef(''); const synthesis = useRef(0); const synthesisQueue = useRef(Promise.resolve());
+  const mode = useRef('wake'); const voice = useRef('bf_isabella'); const sentence = useRef(''); const synthesis = useRef(0); const synthesisQueue = useRef(Promise.resolve()); const voiceTurnActive = useRef(false);
+  const idleState = () => enabled.current ? mode.current === 'wake' ? 'wake-listening' : mode.current === 'conversation' ? 'capturing' : 'ready' : 'muted';
   useEffect(() => { transcriptRef.current = onTranscript; stateRef.current = onState; interruptRef.current = onInterrupt; });
   useEffect(() => {
-    let stream: MediaStream | undefined; let context: AudioContext | undefined; let source: MediaStreamAudioSourceNode | undefined; let node: AudioWorkletNode | undefined;
+    let stream: MediaStream | undefined; let context: AudioContext | undefined; let source: MediaStreamAudioSourceNode | undefined; let node: AudioWorkletNode | undefined; let monitor: GainNode | undefined;
     let stopped = false; let started = false;
     const start = async () => {
       if (started || stopped) return;
       const status = await api.voice();
       enabled.current = Boolean(status.enabled);
+      mode.current = status.mode || 'wake';
       voice.current = status.voice || 'bf_isabella';
-      if (!status.models.every((model: any) => model.ready)) { stateRef.current('bootstrap', 'Local voice assets are not installed.'); return; }
+      const missing = status.models.filter((model: any) => !model.ready);
+      if (missing.length) { stateRef.current('bootstrap', `Missing local voice assets: ${missing.map((model: any) => model.id).join(', ')}. Connect to the network and use Install voice assets.`); return; }
       try {
         started = true;
         stateRef.current('arming');
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone capture is unavailable in this browser context. Start the Electron desktop app to use wake mode.');
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        } catch (error: any) {
+          const reason = error?.name === 'NotAllowedError' ? 'Microphone permission was denied.' : error?.name === 'NotFoundError' ? 'No microphone input device was found.' : error?.message || String(error);
+          throw new Error(`Wake mode cannot start microphone capture: ${reason}`);
+        }
         context = new AudioContext();
         const workletUrl = URL.createObjectURL(new Blob([audioProcessorSource], { type: 'application/javascript' }));
         try { await context.audioWorklet.addModule(workletUrl); } finally { URL.revokeObjectURL(workletUrl); }
-        source = context.createMediaStreamSource(stream); node = new AudioWorkletNode(context, 'jarvis-audio-processor');
+        source = context.createMediaStreamSource(stream); node = new AudioWorkletNode(context, 'jarvis-audio-processor'); monitor = context.createGain(); monitor.gain.value = 0;
         worker.current = new Worker(new URL('./wake-worker.ts', import.meta.url), { type: 'module' });
-        const stopPlayback = () => { playbackGeneration.current += 1; synthesis.current += 1; sentence.current = ''; audioQueue.current = []; playing.current = false; playback.current.forEach((output) => output.stop()); playback.current.clear(); void window.jarvisDesktop?.tts('cancel').catch(() => {}); void api.voiceEvent({ type: 'playback', state: 'interrupted', conversationId: speakingConversation.current }); };
-        const playNext = () => {
+        const workerListening = () => enabled.current && !voiceTurnActive.current;
+        const pauseVoiceInput = () => { voiceTurnActive.current = true; worker.current?.postMessage({ type: 'listening', enabled: false }); };
+        const resumeVoiceInput = () => { voiceTurnActive.current = false; worker.current?.postMessage({ type: 'listening', enabled: enabled.current }); stateRef.current(idleState()); };
+        const shouldCancelTts = () => playing.current || audioQueue.current.length > 0 || sentence.current.trim().length > 0 || voiceTurnActive.current || Boolean(speakingConversation.current);
+        const stopPlayback = () => { const cancelTts = shouldCancelTts(); playbackGeneration.current += 1; synthesis.current += 1; sentence.current = ''; audioQueue.current = []; playing.current = false; playback.current.forEach((output) => output.stop()); playback.current.clear(); resumeVoiceInput(); if (cancelTts) void window.jarvisDesktop?.tts('cancel').catch(() => {}); void api.voiceEvent({ type: 'playback', state: 'interrupted', conversationId: speakingConversation.current }); };
+        const playNext = async () => {
           if (!context || playing.current) return;
           const next = audioQueue.current.shift();
-          if (!next) { stateRef.current(enabled.current ? 'wake-listening' : 'muted'); void api.voiceEvent({ type: 'playback', state: 'complete', conversationId: speakingConversation.current }); speakingConversation.current = null; return; }
-          playing.current = true;
-          const buffer = context.createBuffer(1, next.samples.length, next.rate); buffer.copyToChannel(new Float32Array(next.samples), 0);
-          const output = context.createBufferSource(); const generation = playbackGeneration.current; output.buffer = buffer; output.connect(context.destination); playback.current.add(output);
-          output.onended = () => { if (generation !== playbackGeneration.current) return; playback.current.delete(output); playing.current = false; playNext(); };
-          void api.voiceEvent({ type: 'playback', state: 'started', sampleRate: next.rate, conversationId: speakingConversation.current }); output.start();
+          if (!next) { resumeVoiceInput(); void api.voiceEvent({ type: 'playback', state: 'complete', conversationId: speakingConversation.current }); speakingConversation.current = null; return; }
+          try {
+            if (context.state !== 'running') {
+              stateRef.current('speaking', `Resuming Electron audio output (${context.state}).`);
+              await context.resume();
+            }
+            if (context.state !== 'running') throw new Error(`Electron audio output is ${context.state}; click the app window or check OS audio output, then try again.`);
+            playing.current = true;
+            const buffer = context.createBuffer(1, next.samples.length, next.rate); buffer.copyToChannel(new Float32Array(next.samples), 0);
+            const output = context.createBufferSource(); const generation = playbackGeneration.current; output.buffer = buffer; output.connect(context.destination); playback.current.add(output);
+            output.onended = () => { if (generation !== playbackGeneration.current) return; playback.current.delete(output); playing.current = false; void playNext(); };
+            void api.voiceEvent({ type: 'playback', state: 'started', sampleRate: next.rate, conversationId: speakingConversation.current }); output.start();
+          } catch (error: any) {
+            stateRef.current('error', `Local audio playback error: ${error.message || String(error)}`);
+            speakingConversation.current = null;
+            resumeVoiceInput();
+          }
         };
-        const enqueue = (text: string) => { const generation = synthesis.current; synthesisQueue.current = synthesisQueue.current.then(async () => { if (!text.trim() || generation !== synthesis.current) return; try { const output = await window.jarvisDesktop?.tts('synthesize', { text, voice: voice.current }); if (!output || generation !== synthesis.current) return; void api.voiceEvent({ type: 'sentence-ready', text, conversationId: speakingConversation.current }); audioQueue.current.push({ samples: new Float32Array(output.samples), rate: output.sampleRate }); playNext(); } catch (error: any) { if (generation === synthesis.current) stateRef.current('error', `Local Kokoro error: ${error.message}`); } }); };
-        const queueSpeech = (token: string, done: boolean) => { sentence.current += token; const parts = sentence.current.split(/(?<=[.!?])\s+/); sentence.current = parts.pop() || ''; parts.forEach(enqueue); if (done && sentence.current.trim()) { enqueue(sentence.current); sentence.current = ''; } };
+        const speakableText = (text: string) => text.replace(/\*\*/g, '').replace(/#{1,6}\s*/g, '').replace(/[_`]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').replace(/\s+/g, ' ').trim();
+        const toFloatSamples = (samples: unknown) => samples instanceof Float32Array ? samples : samples instanceof ArrayBuffer ? new Float32Array(samples) : ArrayBuffer.isView(samples) ? new Float32Array(samples.buffer.slice(samples.byteOffset, samples.byteOffset + samples.byteLength)) : Array.isArray(samples) ? Float32Array.from(samples) : new Float32Array();
+        const enqueue = (text: string) => { const generation = synthesis.current; const spoken = speakableText(text); synthesisQueue.current = synthesisQueue.current.then(async () => { if (!spoken || generation !== synthesis.current) return; try { const startedAt = performance.now(); stateRef.current('speaking', `Loading/synthesizing Kokoro v1.0 speech (${Math.min(spoken.length, 80)} chars).`); if (!window.jarvisDesktop?.tts) throw new Error('Electron TTS bridge is unavailable. Restart the desktop app.'); const output = await window.jarvisDesktop.tts('synthesize', { text: spoken, voice: voice.current }); if (output?.cancelled || generation !== synthesis.current) return; if (output?.ok === false) throw new Error(output.error || 'Local Kokoro synthesis failed.'); const samples = toFloatSamples(output?.samples); const sampleRate = Number(output?.sampleRate || 24_000); if (!samples.length) throw new Error('Local Kokoro returned no audio samples.'); const seconds = samples.length / sampleRate; stateRef.current('speaking', `Kokoro generated ${seconds.toFixed(1)}s of audio in ${((performance.now() - startedAt) / 1000).toFixed(1)}s; starting playback.`); void api.voiceEvent({ type: 'sentence-ready', text: spoken, sampleCount: samples.length, sampleRate, conversationId: speakingConversation.current }); audioQueue.current.push({ samples, rate: sampleRate }); void playNext(); } catch (error: any) { if (generation === synthesis.current) { stateRef.current('error', `Local Kokoro error: ${error.message}`); speakingConversation.current = null; resumeVoiceInput(); } } }); };
+        const flushSpeechParts = () => { const parts = sentence.current.split(/(?<=[.!?])\s+|(?<=:)\s+|\n+/); sentence.current = parts.pop() || ''; parts.forEach(enqueue); if (sentence.current.length >= 90) { const chunk = sentence.current.slice(0, sentence.current.lastIndexOf(' ', 90) > 40 ? sentence.current.lastIndexOf(' ', 90) : 90); sentence.current = sentence.current.slice(chunk.length).trimStart(); enqueue(chunk); } };
+        const queueSpeech = (token: string, done: boolean) => { sentence.current += token; flushSpeechParts(); if (done && sentence.current.trim()) { enqueue(sentence.current); sentence.current = ''; } if (done) void synthesisQueue.current.then(() => { if (!playing.current && !audioQueue.current.length) resumeVoiceInput(); }); };
+        worker.current.onerror = (error) => stateRef.current('error', `Wake worker failed: ${error.message}`);
         worker.current.onmessage = ({ data }) => {
-          if (data.type === 'ready') stateRef.current(enabled.current ? 'wake-listening' : 'muted');
+          if (data.type === 'loading') stateRef.current('wake-loading', data.message);
+          if (data.type === 'ready') stateRef.current(enabled.current ? mode.current === 'wake' ? 'wake-warming' : mode.current === 'conversation' ? 'capturing' : 'ready' : 'muted');
+          if (data.type === 'wake-ready') stateRef.current(enabled.current ? 'wake-listening' : 'muted');
           if (data.type === 'wake') { stopPlayback(); worker.current?.postMessage({ type: 'cancel-speech' }); if (speakingConversation.current) void api.cancel(speakingConversation.current); interruptRef.current(); stateRef.current('capturing'); }
           if (data.type === 'transcribing') stateRef.current('transcribing');
           if (data.type === 'partial-transcript' && data.text) void api.voiceTranscript('partial', data.text, speakingConversation.current || undefined);
-          if (data.type === 'transcript') { stateRef.current('thinking'); if (data.text) transcriptRef.current(data.text); }
+          if (data.type === 'transcript') { if (data.text) { pauseVoiceInput(); stateRef.current('thinking'); transcriptRef.current(data.text); } else stateRef.current(idleState(), data.rawText ? `Speech recognition returned ${data.rawText}.` : 'No speech was captured after the wake word.'); }
           if (data.type === 'benchmark') void api.voiceEvent(data);
           if (data.type === 'error') stateRef.current('error', data.message);
         };
@@ -63,22 +93,28 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
           } else bargeFrames.current = 0;
           worker.current?.postMessage({ type: 'audio', samples }, [samples.buffer]);
         };
-        // Deliberately do not connect the microphone worklet to context.destination:
-        // monitoring it would create an acoustic feedback path into wake detection.
-        source.connect(node);
+        // A zero-gain sink keeps Chromium pulling the worklet without monitoring mic audio.
+        source.connect(node).connect(monitor).connect(context.destination);
         const daemon = await window.jarvisDesktop?.daemon();
         const assetBase = daemon ? `http://127.0.0.1:${daemon.port}/api/voice-assets` : `${window.location.origin}/api/voice-assets`;
-        worker.current.postMessage({ type: 'init', baseUrl: assetBase, enabled: enabled.current, voice: status.voice });
-        const handleSpeak = (event: Event) => { const detail = (event as CustomEvent).detail; if (detail?.type === 'interrupt') { stopPlayback(); worker.current?.postMessage({ type: 'reset' }); return; } worker.current?.postMessage(detail); };
+        worker.current.postMessage({ type: 'init', baseUrl: assetBase, enabled: workerListening(), mode: mode.current, voice: status.voice });
+        const handleSpeak = (event: Event) => {
+          const detail = (event as CustomEvent).detail;
+          if (detail?.type === 'interrupt') { stopPlayback(); worker.current?.postMessage({ type: 'reset' }); return; }
+          if (detail?.type === 'assistant-token') { speakingConversation.current = detail.conversationId || speakingConversation.current; queueSpeech(String(detail.value || ''), false); return; }
+          if (detail?.type === 'assistant-complete') { speakingConversation.current = detail.conversationId || speakingConversation.current; queueSpeech('', true); return; }
+          if (detail?.type === 'assistant-error') { stopPlayback(); worker.current?.postMessage({ type: 'interrupt' }); speakingConversation.current = null; return; }
+          worker.current?.postMessage(detail);
+        };
         window.addEventListener('jarvis:speak', handleSpeak);
         const eventController = new AbortController();
         void (async () => {
           try {
             for await (const event of api.events(eventController.signal)) {
-              if (event.type === 'voice-state') { if (typeof event.voice === 'string') { stopPlayback(); voice.current = event.voice; } if (typeof event.enabled === 'boolean') { enabled.current = event.enabled; if (!enabled.current) stopPlayback(); worker.current?.postMessage({ type: 'listening', enabled: enabled.current }); } continue; }
+              if (event.type === 'voice-state') { if (typeof event.voice === 'string') { stopPlayback(); voice.current = event.voice; } if (typeof event.mode === 'string') { mode.current = event.mode; stopPlayback(); worker.current?.postMessage({ type: 'mode', mode: mode.current }); } if (typeof event.enabled === 'boolean') { enabled.current = event.enabled; if (!enabled.current) stopPlayback(); worker.current?.postMessage({ type: 'listening', enabled: workerListening() }); } continue; }
               if (!enabled.current) continue;
-              if (event.type === 'token') { speakingConversation.current = event.conversationId || null; queueSpeech(event.value, false); continue; }
-              if (event.type === 'turn-complete') { if (!event.conversationId || event.conversationId === speakingConversation.current) queueSpeech('', true); continue; }
+              if (event.type === 'token') continue;
+              if (event.type === 'turn-complete') continue;
               if ((event.type === 'cancelled' || event.type === 'error') && (!event.conversationId || event.conversationId === speakingConversation.current)) { stopPlayback(); worker.current?.postMessage({ type: 'interrupt' }); speakingConversation.current = null; }
             }
           } catch (error: any) { if (!eventController.signal.aborted) stateRef.current('unavailable', `Voice event stream ended: ${error.message}`); }
@@ -89,7 +125,7 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
     let removeRuntime: (() => void) | undefined;
     const retry = () => { void start().then((cleanup) => { removeRuntime = cleanup; }); };
     window.addEventListener('jarvis:voice-assets-ready', retry); retry();
-    return () => { stopped = true; window.removeEventListener('jarvis:voice-assets-ready', retry); removeRuntime?.(); audioQueue.current = []; playback.current.forEach((output) => output.stop()); worker.current?.terminate(); node?.disconnect(); source?.disconnect(); void context?.close(); stream?.getTracks().forEach((track) => track.stop()); };
+    return () => { stopped = true; window.removeEventListener('jarvis:voice-assets-ready', retry); removeRuntime?.(); audioQueue.current = []; playback.current.forEach((output) => output.stop()); worker.current?.terminate(); monitor?.disconnect(); node?.disconnect(); source?.disconnect(); void context?.close(); stream?.getTracks().forEach((track) => track.stop()); };
   }, []);
   useEffect(() => { setControlsTarget(document.querySelector('.model-controls')); }, []);
   return controlsTarget ? createPortal(<VoiceControls />, controlsTarget) : null;

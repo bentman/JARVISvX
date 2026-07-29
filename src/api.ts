@@ -5,7 +5,7 @@ declare global {
     jarvisDesktop?: {
       daemon: () => Promise<{ port: number; token: string }>;
       voice: (action: string, payload?: unknown) => Promise<unknown>;
-      tts: (action: string, payload?: unknown) => Promise<{ samples: Float32Array; sampleRate: number }>;
+      tts: (action: string, payload?: unknown) => Promise<{ ok?: boolean; cancelled?: boolean; error?: string; samples: Float32Array; sampleRate: number }>;
     };
   }
 }

@@ -4,18 +4,26 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { DaemonClient } from '../lib/daemon-client.mjs';
+import { voiceModelManifest } from '../lib/model-bootstrap.mjs';
+
+function nextEvent(hub) {
+  let unsubscribe = () => {};
+  return new Promise((resolve) => {
+    unsubscribe = hub.subscribe((event) => { unsubscribe(); resolve(event); });
+  });
+}
 
 test('daemon owns an authenticated loopback API and shares assistant events', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-daemon-'));
   process.env.JARVIS_DATA_DIR = directory;
   process.env.JARVIS_MODEL_DIR = path.join(directory, 'models');
-  const wakeDirectory = path.join(process.env.JARVIS_MODEL_DIR, 'wake', 'hey-jarvis');
-  await fs.mkdir(wakeDirectory, { recursive: true });
-  await fs.writeFile(path.join(wakeDirectory, 'hey_jarvis_v0.1.onnx'), 'fixture-model');
-  const ttsDirectory = path.join(process.env.JARVIS_MODEL_DIR, 'tts', 'kokoro-v1');
-  await fs.mkdir(ttsDirectory, { recursive: true });
-  await fs.writeFile(path.join(ttsDirectory, 'kokoro-v1.0.onnx'), 'fixture-model');
-  await fs.writeFile(path.join(ttsDirectory, 'voices-v1.0.bin'), 'fixture-voices');
+  for (const model of voiceModelManifest) {
+    for (const [file] of model.files) {
+      const target = path.join(process.env.JARVIS_MODEL_DIR, model.directory, file);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, file === 'voices-v1.0.bin' ? 'fixture-voices' : 'fixture-model');
+    }
+  }
   const { startDaemon } = await import('../lib/daemon.mjs');
   const daemon = await startDaemon({ port: 0, token: 'test-token' });
   try {
@@ -25,10 +33,10 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
     assert.equal(allowed.status, 200);
     const asset = await fetch(`http://127.0.0.1:${daemon.port}/api/voice-assets/wake.hey-jarvis/hey_jarvis_v0.1.onnx`);
     assert.equal(await asset.text(), 'fixture-model');
-    const received = new Promise((resolve) => daemon.jarvis.events.subscribe(resolve));
+    const received = nextEvent(daemon.jarvis.events);
     daemon.jarvis.events.publish({ type: 'voice-state', state: 'muted' });
     assert.equal((await received).type, 'voice-state');
-    const transcriptEvent = new Promise((resolve) => daemon.jarvis.events.subscribe(resolve));
+    const transcriptEvent = nextEvent(daemon.jarvis.events);
     const transcript = await fetch(`http://127.0.0.1:${daemon.port}/api/voice/transcript`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ kind: 'final', text: 'turn on the lights' }) });
     assert.deepEqual(await transcript.json(), { accepted: true });
     assert.equal((await transcriptEvent).type, 'final-transcript');
@@ -39,7 +47,7 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
     daemon.jarvis.voice.setSession('shared-voice-session', 'speaking');
     assert.equal(daemon.jarvis.db.setting('voice.active-session').conversationId, 'shared-voice-session');
     assert.equal(daemon.jarvis.db.setting('voice.active-session').state, 'speaking');
-    const muteEvent = new Promise((resolve) => daemon.jarvis.events.subscribe(resolve));
+    const muteEvent = nextEvent(daemon.jarvis.events);
     daemon.jarvis.voice.setEnabled(false);
     const muted = await muteEvent;
     assert.equal(muted.type, 'voice-state');
@@ -53,7 +61,7 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
     daemon.jarvis.voice.event({ type: 'playback', state: 'started' });
     assert.equal((await eventNext).value.type, 'playback');
     streamAbort.abort();
-    await events.return?.();
+    await Promise.race([events.return?.(), new Promise((resolve) => setTimeout(resolve, 100))]);
     const model = await fetch(`http://127.0.0.1:${daemon.port}/api/settings/model`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ provider: 'ollama', model: 'qwen3:8b' }) });
     assert.equal(model.status, 204);
     assert.equal(daemon.jarvis.modelFor('ollama'), 'qwen3:8b');

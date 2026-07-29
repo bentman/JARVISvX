@@ -5,6 +5,7 @@ import test from 'node:test';
 import { Worker } from 'node:worker_threads';
 import { voiceModelManifest } from '../lib/model-bootstrap.mjs';
 import { VoiceRuntime, localKokoroVoices } from '../lib/voice-runtime.mjs';
+import { cleanVoiceTranscript } from '../lib/voice-transcript.mjs';
 
 test('Kokoro v1 uses its ONNX model and one shared voice bundle', () => {
   const model = voiceModelManifest.find((item) => item.id === 'tts.kokoro-v1');
@@ -23,13 +24,60 @@ test('Kokoro defaults to bf_isabella and accepts only the eight local voices', a
   assert.throws(() => runtime.setVoice('af_alloy'), /not installed locally/);
 });
 
-test('Electron Kokoro worker uses the two-file bundle locally and produces 24 kHz audio', { skip: !(await present(path.resolve('models/tts/kokoro-v1/kokoro-v1.0.onnx'))) || !(await present(path.resolve('models/tts/kokoro-v1/voices-v1.0.bin'))) && 'Kokoro model bundle is not installed' }, async () => {
+test('voice runtime initializes every model required by wake capture and playback', async () => {
+  const installed = [];
+  const runtime = new VoiceRuntime({ database: { setting: (_key, fallback) => fallback, setSetting: () => {} }, publish: () => {} });
+  runtime.bootstrap = { install: async (id) => { installed.push(id); }, status: async () => installed.map((id) => ({ id, ready: true })) };
+  await runtime.initialize();
+  assert.deepEqual(installed, ['wake.hey-jarvis', 'stt.whisper-base-en', 'tts.kokoro-v1']);
+});
+
+test('voice runtime keeps daemon status available when model bootstrap fails', async () => {
+  const events = [];
+  const runtime = new VoiceRuntime({ database: { setting: (_key, fallback) => fallback, setSetting: () => {} }, publish: (event) => events.push(event) });
+  runtime.bootstrap = { install: async (id) => { throw new Error(`offline ${id}`); }, status: async () => [{ id: 'wake.hey-jarvis', ready: false }] };
+  await runtime.initialize();
+  const status = await runtime.status();
+  assert.equal(status.models[0].ready, false);
+  assert.match(status.detail, /Unable to install tts\.kokoro-v1: offline tts\.kokoro-v1/);
+  assert.equal(events.at(-1).state, 'bootstrap');
+});
+
+test('voice mode changes are persisted and published for the audio host', () => {
+  const settings = new Map(); const events = [];
+  const runtime = new VoiceRuntime({ database: { setting: (key, fallback) => settings.has(key) ? settings.get(key) : fallback, setSetting: (key, value) => settings.set(key, value) }, publish: (event) => events.push(event) });
+  runtime.setMode('wake');
+  runtime.setMode('ptt');
+  assert.equal(settings.get('voice.mode'), 'ptt');
+  assert.deepEqual(events.at(-1), { type: 'voice-state', state: 'bootstrap', mode: 'ptt' });
+  assert.throws(() => runtime.setMode('always-on'), /Unsupported local voice mode/);
+});
+
+test('voice transcripts drop blank audio placeholders and wake prefixes', () => {
+  const settings = new Map(); const events = [];
+  const runtime = new VoiceRuntime({ database: { setting: (key, fallback) => settings.has(key) ? settings.get(key) : fallback, setSetting: (key, value) => settings.set(key, value) }, publish: (event) => events.push(event) });
+  assert.equal(cleanVoiceTranscript('[BLANK_AUDIO]'), null);
+  assert.equal(cleanVoiceTranscript('Hey Jarvis, what is the capital of the United States?'), 'what is the capital of the United States?');
+  assert.equal(runtime.transcript('final', '[BLANK_AUDIO]'), false);
+  assert.equal(runtime.transcript('final', 'Jarvis: what is the capital of the United States?'), true);
+  assert.equal(events.at(-1).text, 'what is the capital of the United States?');
+  assert.equal(settings.get('voice.active-session').state, 'thinking');
+});
+
+const kokoroBundleInstalled = (await present(path.resolve('models/tts/kokoro-v1/kokoro-v1.0.onnx'))) && (await present(path.resolve('models/tts/kokoro-v1/voices-v1.0.bin')));
+const kokoroWorkerSkip = !kokoroBundleInstalled ? 'Kokoro model bundle is not installed' : false;
+
+test('Electron Kokoro worker uses the two-file bundle locally and produces 24 kHz audio', { skip: kokoroWorkerSkip }, async () => {
   const source = await fs.readFile(path.resolve('electron/kokoro-onnx-worker.mjs'), 'utf8');
   assert.doesNotMatch(source, /inflateRawSync|https?:\/\/|\bfetch\s*\(/);
   const root = process.cwd(); const worker = new Worker(path.resolve('electron/kokoro-onnx-worker.mjs'));
   try { const result = await new Promise((resolve, reject) => { worker.once('error', reject); worker.once('message', (message) => message.ok ? resolve(message) : reject(new Error(message.error))); worker.postMessage({ id: 1, modelPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: 'JARVIS is ready.', voice: 'bf_isabella' }); }); assert.equal(result.sampleRate, 24_000); assert.ok(result.samples.length > 0); } finally { await worker.terminate(); }
 });
-test('Electron Kokoro worker rejects voices outside the local allowlist', async () => {
+test('Electron Kokoro worker preloads the session without generating audio', { skip: kokoroWorkerSkip }, async () => {
+  const root = process.cwd(); const worker = new Worker(path.resolve('electron/kokoro-onnx-worker.mjs'));
+  try { const result = await new Promise((resolve, reject) => { worker.once('error', reject); worker.once('message', (message) => message.ok ? resolve(message) : reject(new Error(message.error))); worker.postMessage({ id: 1, modelPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: '', voice: 'bf_isabella' }); }); assert.equal(result.sampleRate, 24_000); assert.equal(result.samples.length, 0); } finally { await worker.terminate(); }
+});
+test('Electron Kokoro worker rejects voices outside the local allowlist', { skip: kokoroWorkerSkip }, async () => {
   const worker = new Worker(path.resolve('electron/kokoro-onnx-worker.mjs'));
   try {
     const result = await new Promise((resolve, reject) => { worker.once('error', reject); worker.once('message', resolve); worker.postMessage({ id: 1, modelPath: 'unused.onnx', voicesPath: 'unused.bin', text: 'test', voice: 'af_alloy' }); });
