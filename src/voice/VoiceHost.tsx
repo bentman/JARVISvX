@@ -43,7 +43,7 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
         worker.current = new Worker(new URL('./wake-worker.ts', import.meta.url), { type: 'module' });
         const workerListening = () => enabled.current && !voiceTurnActive.current;
         const pauseVoiceInput = () => { voiceTurnActive.current = true; worker.current?.postMessage({ type: 'listening', enabled: false }); };
-        const resumeVoiceInput = () => { voiceTurnActive.current = false; worker.current?.postMessage({ type: 'listening', enabled: enabled.current }); stateRef.current(idleState()); };
+        const resumeVoiceInput = (detail?: string) => { voiceTurnActive.current = false; worker.current?.postMessage({ type: 'listening', enabled: enabled.current }); stateRef.current(idleState(), detail); };
         const shouldCancelTts = () => playing.current || audioQueue.current.length > 0 || sentence.current.trim().length > 0 || voiceTurnActive.current || Boolean(speakingConversation.current);
         const stopPlayback = () => { const cancelTts = shouldCancelTts(); playbackGeneration.current += 1; synthesis.current += 1; sentence.current = ''; audioQueue.current = []; playing.current = false; playback.current.forEach((output) => output.stop()); playback.current.clear(); resumeVoiceInput(); if (cancelTts) void window.jarvisDesktop?.tts('cancel').catch(() => {}); void api.voiceEvent({ type: 'playback', state: 'interrupted', conversationId: speakingConversation.current }); };
         const playNext = async () => {
@@ -51,25 +51,43 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
           const next = audioQueue.current.shift();
           if (!next) { resumeVoiceInput(); void api.voiceEvent({ type: 'playback', state: 'complete', conversationId: speakingConversation.current }); speakingConversation.current = null; return; }
           try {
+            playing.current = true;
             if (context.state !== 'running') {
               stateRef.current('speaking', `Resuming Electron audio output (${context.state}).`);
               await context.resume();
             }
             if (context.state !== 'running') throw new Error(`Electron audio output is ${context.state}; click the app window or check OS audio output, then try again.`);
-            playing.current = true;
             const buffer = context.createBuffer(1, next.samples.length, next.rate); buffer.copyToChannel(new Float32Array(next.samples), 0);
             const output = context.createBufferSource(); const generation = playbackGeneration.current; output.buffer = buffer; output.connect(context.destination); playback.current.add(output);
             output.onended = () => { if (generation !== playbackGeneration.current) return; playback.current.delete(output); playing.current = false; void playNext(); };
             void api.voiceEvent({ type: 'playback', state: 'started', sampleRate: next.rate, conversationId: speakingConversation.current }); output.start();
           } catch (error: any) {
+            playing.current = false;
             stateRef.current('error', `Local audio playback error: ${error.message || String(error)}`);
             speakingConversation.current = null;
             resumeVoiceInput();
           }
         };
-        const speakableText = (text: string) => text.replace(/\*\*/g, '').replace(/#{1,6}\s*/g, '').replace(/[_`]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').replace(/\s+/g, ' ').trim();
+        const speakableText = (text: string) => text
+          .replace(/```[\s\S]*?```/g, ' ')
+          .replace(/`([^`]*)`/g, '$1')
+          .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+          .replace(/^\s{0,3}[-*+]\s+/gm, '')
+          .replace(/^\s{0,3}\d+[.)]\s+/gm, '')
+          .replace(/#{1,6}\s*/g, '')
+          .replace(/[*_~>|[\]{}]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
         const toFloatSamples = (samples: unknown) => samples instanceof Float32Array ? samples : samples instanceof ArrayBuffer ? new Float32Array(samples) : ArrayBuffer.isView(samples) ? new Float32Array(samples.buffer.slice(samples.byteOffset, samples.byteOffset + samples.byteLength)) : Array.isArray(samples) ? Float32Array.from(samples) : new Float32Array();
-        const enqueue = (text: string) => { const generation = synthesis.current; const spoken = speakableText(text); synthesisQueue.current = synthesisQueue.current.then(async () => { if (!spoken || generation !== synthesis.current) return; try { const startedAt = performance.now(); stateRef.current('speaking', `Loading/synthesizing Kokoro v1.0 speech (${Math.min(spoken.length, 80)} chars).`); if (!window.jarvisDesktop?.tts) throw new Error('Electron TTS bridge is unavailable. Restart the desktop app.'); const output = await window.jarvisDesktop.tts('synthesize', { text: spoken, voice: voice.current }); if (output?.cancelled || generation !== synthesis.current) return; if (output?.ok === false) throw new Error(output.error || 'Local Kokoro synthesis failed.'); const samples = toFloatSamples(output?.samples); const sampleRate = Number(output?.sampleRate || 24_000); if (!samples.length) throw new Error('Local Kokoro returned no audio samples.'); const seconds = samples.length / sampleRate; stateRef.current('speaking', `Kokoro generated ${seconds.toFixed(1)}s of audio in ${((performance.now() - startedAt) / 1000).toFixed(1)}s; starting playback.`); void api.voiceEvent({ type: 'sentence-ready', text: spoken, sampleCount: samples.length, sampleRate, conversationId: speakingConversation.current }); audioQueue.current.push({ samples, rate: sampleRate }); void playNext(); } catch (error: any) { if (generation === synthesis.current) { stateRef.current('error', `Local Kokoro error: ${error.message}`); speakingConversation.current = null; resumeVoiceInput(); } } }); };
+        const waitForPlaybackRoom = (generation: number) => new Promise<void>((resolve) => {
+          const check = () => generation !== synthesis.current || audioQueue.current.length < 2 ? resolve() : window.setTimeout(check, 200);
+          check();
+        });
+        const waitForTts = (request: Promise<any>) => new Promise<any>((resolve, reject) => {
+          const timer = window.setTimeout(() => reject(new Error('Local Kokoro IPC did not resolve within 95s. Check the last TTS stage shown in the voice status.')), 95_000);
+          request.then((value) => { window.clearTimeout(timer); resolve(value); }, (error) => { window.clearTimeout(timer); reject(error); });
+        });
+        const enqueue = (text: string) => { const generation = synthesis.current; const spoken = speakableText(text).slice(0, 260); synthesisQueue.current = synthesisQueue.current.then(async () => { if (!spoken || generation !== synthesis.current) return; try { await waitForPlaybackRoom(generation); if (generation !== synthesis.current) return; const startedAt = performance.now(); stateRef.current('speaking', `Loading/synthesizing Kokoro v1.0 speech (${Math.min(spoken.length, 80)} chars).`); if (!window.jarvisDesktop?.tts) throw new Error('Electron TTS bridge is unavailable. Restart the desktop app.'); const output = await waitForTts(window.jarvisDesktop.tts('synthesize', { text: spoken, voice: voice.current })); if (generation !== synthesis.current) return; if (output?.cancelled) { resumeVoiceInput('Local Kokoro synthesis was cancelled.'); return; } if (output?.ok === false) throw new Error(`${output.stage ? `${output.stage}: ` : ''}${output.error || 'Local Kokoro synthesis failed.'}`); const samples = toFloatSamples(output?.samples); const sampleRate = Number(output?.sampleRate || 24_000); if (!samples.length) throw new Error('Local Kokoro returned no audio samples.'); const seconds = samples.length / sampleRate; stateRef.current('speaking', `Kokoro generated ${seconds.toFixed(1)}s of audio in ${((performance.now() - startedAt) / 1000).toFixed(1)}s; starting playback.`); void api.voiceEvent({ type: 'sentence-ready', text: spoken, sampleCount: samples.length, sampleRate, conversationId: speakingConversation.current }); audioQueue.current.push({ samples, rate: sampleRate }); void playNext(); } catch (error: any) { if (generation === synthesis.current) { sentence.current = ''; audioQueue.current = []; playing.current = false; speakingConversation.current = null; resumeVoiceInput(`Local Kokoro error: ${error.message}`); void api.voiceEvent({ type: 'playback', state: 'error', detail: error.message }); } } }); };
         const flushSpeechParts = () => { const parts = sentence.current.split(/(?<=[.!?])\s+|(?<=:)\s+|\n+/); sentence.current = parts.pop() || ''; parts.forEach(enqueue); if (sentence.current.length >= 90) { const chunk = sentence.current.slice(0, sentence.current.lastIndexOf(' ', 90) > 40 ? sentence.current.lastIndexOf(' ', 90) : 90); sentence.current = sentence.current.slice(chunk.length).trimStart(); enqueue(chunk); } };
         const queueSpeech = (token: string, done: boolean) => { sentence.current += token; flushSpeechParts(); if (done && sentence.current.trim()) { enqueue(sentence.current); sentence.current = ''; } if (done) void synthesisQueue.current.then(() => { if (!playing.current && !audioQueue.current.length) resumeVoiceInput(); }); };
         worker.current.onerror = (error) => stateRef.current('error', `Wake worker failed: ${error.message}`);
@@ -101,12 +119,13 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
         const handleSpeak = (event: Event) => {
           const detail = (event as CustomEvent).detail;
           if (detail?.type === 'interrupt') { stopPlayback(); worker.current?.postMessage({ type: 'reset' }); return; }
-          if (detail?.type === 'assistant-token') { speakingConversation.current = detail.conversationId || speakingConversation.current; queueSpeech(String(detail.value || ''), false); return; }
+          if (detail?.type === 'assistant-token') { const nextConversation = detail.conversationId || speakingConversation.current; if (nextConversation && speakingConversation.current && nextConversation !== speakingConversation.current) stopPlayback(); if (!voiceTurnActive.current) pauseVoiceInput(); speakingConversation.current = nextConversation; queueSpeech(String(detail.value || ''), false); return; }
           if (detail?.type === 'assistant-complete') { speakingConversation.current = detail.conversationId || speakingConversation.current; queueSpeech('', true); return; }
           if (detail?.type === 'assistant-error') { stopPlayback(); worker.current?.postMessage({ type: 'interrupt' }); speakingConversation.current = null; return; }
           worker.current?.postMessage(detail);
         };
         window.addEventListener('jarvis:speak', handleSpeak);
+        const removeTtsProgress = window.jarvisDesktop?.onTtsProgress?.((event) => { if (event?.message && voiceTurnActive.current) stateRef.current('speaking', event.message); });
         const eventController = new AbortController();
         void (async () => {
           try {
@@ -119,7 +138,7 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
             }
           } catch (error: any) { if (!eventController.signal.aborted) stateRef.current('unavailable', `Voice event stream ended: ${error.message}`); }
         })();
-        return () => { eventController.abort(); window.removeEventListener('jarvis:speak', handleSpeak); };
+        return () => { eventController.abort(); removeTtsProgress?.(); window.removeEventListener('jarvis:speak', handleSpeak); };
       } catch (error: any) { if (!stopped) stateRef.current('unavailable', error.message); }
     };
     let removeRuntime: (() => void) | undefined;

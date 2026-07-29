@@ -6,7 +6,7 @@ import { VoiceHost } from './voice/VoiceHost';
 import type { Conversation, Diagnostics, Provider, Root } from './types';
 
 const fmt = (bytes: number) => `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
-const cleanVoiceTranscript = (text: string) => String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis[\s,.:;-]+/i, '').trim() || null;
+const cleanVoiceTranscript = (text: string) => String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis\b[\s,.:;-]*/i, '').trim() || null;
 
 export default function App() {
   const [providers, setProviders] = useState<Provider[]>([]);

@@ -21,11 +21,24 @@ app.setPath('crashDumps', path.join(electronCache, 'crash-dumps'));
 let window; let tray; let daemon; let quitting = false;
 let ttsWorker; let ttsId = 0; let ttsQueue = Promise.resolve(); const ttsPending = new Map();
 const headlessVoiceHost = process.argv.includes('--jarvis-daemon');
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) {
+  app.quit();
+  process.exit(0);
+}
+app.on('second-instance', () => {
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+});
 const createWindow = async () => {
   const discovery = daemon || await daemonDiscovery();
   window = new BrowserWindow({ width: 1220, height: 820, minWidth: 900, minHeight: 650, show: false, icon: iconPath, webPreferences: { preload: path.join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, autoplayPolicy: 'no-user-gesture-required' } });
   window.on('close', (event) => { if (!quitting) { event.preventDefault(); window.hide(); } });
   window.webContents.on('console-message', (_event, level, message) => { if (level >= 2) console.error(`[renderer] ${message}`); });
+  window.webContents.on('render-process-gone', (_event, details) => console.error(`[renderer-crash] ${details.reason}; exitCode=${details.exitCode}`));
+  window.webContents.on('unresponsive', () => console.error('[renderer-crash] renderer became unresponsive'));
   if (!headlessVoiceHost) window.once('ready-to-show', () => window.show());
   await window.loadURL(`http://127.0.0.1:${discovery.port}/?daemon=${encodeURIComponent(JSON.stringify({ port: discovery.port, token: discovery.token }))}`);
 };
@@ -39,14 +52,15 @@ app.whenReady().then(async () => {
   await createWindow();
   const icon = nativeImage.createFromPath(iconPath); tray = new Tray(icon); tray.setToolTip('JARVISvX — voice host'); tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Show JARVIS', click: () => window.show() }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }])); tray.on('click', () => window.show());
   ipcMain.handle('jarvis:daemon', () => ({ port: daemon.port, token: daemon.token }));
-  ipcMain.handle('jarvis:tts', (_event, action, payload = {}) => {
+  ipcMain.handle('jarvis:tts', (event, action, payload = {}) => {
     if (action === 'cancel') { const worker = ttsWorker; ttsWorker = undefined; ttsQueue = Promise.resolve(); for (const { resolve } of ttsPending.values()) resolve({ ok: false, cancelled: true, error: 'Local Kokoro synthesis cancelled.', sampleRate: 24_000, samples: new Float32Array() }); ttsPending.clear(); return worker?.terminate(); }
     if (action !== 'synthesize') return { ok: false, error: 'Unknown local TTS action.', sampleRate: 24_000, samples: new Float32Array() }; const id = ++ttsId;
     const warmup = !String(payload.text || '').trim();
     const run = () => new Promise((resolve, reject) => {
       const worker = getTtsWorker();
-      const timer = setTimeout(() => { ttsPending.delete(id); const stuck = ttsWorker; ttsWorker = undefined; void stuck?.terminate(); resolve({ ok: false, error: 'Local Kokoro synthesis timed out.', sampleRate: 24_000, samples: new Float32Array() }); }, 90_000);
-      ttsPending.set(id, { resolve: (value) => { clearTimeout(timer); resolve(value); }, reject: (error) => { clearTimeout(timer); reject(error); } });
+      const sendProgress = (stage, message, extra = {}) => event.sender.send('jarvis:tts-progress', { id, stage, message, ...extra });
+      const timer = setTimeout(() => { ttsPending.delete(id); sendProgress('timeout', 'Local Kokoro synthesis timed out.'); const stuck = ttsWorker; ttsWorker = undefined; void stuck?.terminate(); resolve({ ok: false, stage: 'timeout', error: 'Local Kokoro synthesis timed out.', sampleRate: 24_000, samples: new Float32Array() }); }, 90_000);
+      ttsPending.set(id, { sender: event.sender, progress: sendProgress, resolve: (value) => { clearTimeout(timer); resolve(value); }, reject: (error) => { clearTimeout(timer); reject(error); } });
       worker.postMessage({ id, modelPath: path.join(projectRoot, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(projectRoot, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: String(payload.text || ''), voice: String(payload.voice || 'bf_isabella') });
     });
     if (warmup) return run();
@@ -61,8 +75,8 @@ app.on('window-all-closed', (event) => event.preventDefault());
 function getTtsWorker() {
   if (ttsWorker) return ttsWorker;
   const worker = new Worker(path.join(here, 'kokoro-onnx-worker.mjs')); ttsWorker = worker;
-  worker.on('message', (message) => { const pending = ttsPending.get(message.id); if (!pending) return; ttsPending.delete(message.id); pending.resolve(message); });
-  worker.on('error', (error) => { if (ttsWorker !== worker) return; for (const { resolve } of ttsPending.values()) resolve({ ok: false, error: error.message || String(error), sampleRate: 24_000, samples: new Float32Array() }); ttsPending.clear(); });
-  worker.on('exit', (code) => { if (ttsWorker !== worker) return; for (const { resolve } of ttsPending.values()) resolve({ ok: false, error: `Local Kokoro worker exited (${code}).`, sampleRate: 24_000, samples: new Float32Array() }); ttsPending.clear(); ttsWorker = undefined; });
+  worker.on('message', (message) => { const pending = ttsPending.get(message.id); if (!pending) return; if (message.type === 'progress') { pending.progress?.(message.stage, message.message, message); return; } ttsPending.delete(message.id); pending.resolve(message); });
+  worker.on('error', (error) => { if (ttsWorker !== worker) return; for (const { resolve, progress } of ttsPending.values()) { progress?.('worker-error', error.message || String(error)); resolve({ ok: false, stage: 'worker-error', error: error.message || String(error), sampleRate: 24_000, samples: new Float32Array() }); } ttsPending.clear(); });
+  worker.on('exit', (code) => { if (ttsWorker !== worker) return; for (const { resolve, progress } of ttsPending.values()) { progress?.('worker-exit', `Local Kokoro worker exited (${code}).`); resolve({ ok: false, stage: 'worker-exit', error: `Local Kokoro worker exited (${code}).`, sampleRate: 24_000, samples: new Float32Array() }); } ttsPending.clear(); ttsWorker = undefined; });
   return worker;
 }

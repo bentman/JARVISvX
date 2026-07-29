@@ -57,6 +57,8 @@ test('voice transcripts drop blank audio placeholders and wake prefixes', () => 
   const settings = new Map(); const events = [];
   const runtime = new VoiceRuntime({ database: { setting: (key, fallback) => settings.has(key) ? settings.get(key) : fallback, setSetting: (key, value) => settings.set(key, value) }, publish: (event) => events.push(event) });
   assert.equal(cleanVoiceTranscript('[BLANK_AUDIO]'), null);
+  assert.equal(cleanVoiceTranscript('Hey Jarvis'), null);
+  assert.equal(cleanVoiceTranscript('Jarvis'), null);
   assert.equal(cleanVoiceTranscript('Hey Jarvis, what is the capital of the United States?'), 'what is the capital of the United States?');
   assert.equal(runtime.transcript('final', '[BLANK_AUDIO]'), false);
   assert.equal(runtime.transcript('final', 'Jarvis: what is the capital of the United States?'), true);
@@ -71,17 +73,35 @@ test('Electron Kokoro worker uses the two-file bundle locally and produces 24 kH
   const source = await fs.readFile(path.resolve('electron/kokoro-onnx-worker.mjs'), 'utf8');
   assert.doesNotMatch(source, /inflateRawSync|https?:\/\/|\bfetch\s*\(/);
   const root = process.cwd(); const worker = new Worker(path.resolve('electron/kokoro-onnx-worker.mjs'));
-  try { const result = await new Promise((resolve, reject) => { worker.once('error', reject); worker.once('message', (message) => message.ok ? resolve(message) : reject(new Error(message.error))); worker.postMessage({ id: 1, modelPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: 'JARVIS is ready.', voice: 'bf_isabella' }); }); assert.equal(result.sampleRate, 24_000); assert.ok(result.samples.length > 0); } finally { await worker.terminate(); }
+  try { const result = await finalWorkerMessage(worker, { id: 1, modelPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: 'JARVIS is ready.', voice: 'bf_isabella' }); assert.equal(result.sampleRate, 24_000); assert.ok(result.samples.length > 0); } finally { await worker.terminate(); }
 });
 test('Electron Kokoro worker preloads the session without generating audio', { skip: kokoroWorkerSkip }, async () => {
   const root = process.cwd(); const worker = new Worker(path.resolve('electron/kokoro-onnx-worker.mjs'));
-  try { const result = await new Promise((resolve, reject) => { worker.once('error', reject); worker.once('message', (message) => message.ok ? resolve(message) : reject(new Error(message.error))); worker.postMessage({ id: 1, modelPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: '', voice: 'bf_isabella' }); }); assert.equal(result.sampleRate, 24_000); assert.equal(result.samples.length, 0); } finally { await worker.terminate(); }
+  try { const result = await finalWorkerMessage(worker, { id: 1, modelPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: '', voice: 'bf_isabella' }); assert.equal(result.sampleRate, 24_000); assert.equal(result.samples.length, 0); } finally { await worker.terminate(); }
 });
-test('Electron Kokoro worker rejects voices outside the local allowlist', { skip: kokoroWorkerSkip }, async () => {
+test('Electron Kokoro worker rejects voices that are not in the local bundle', { skip: kokoroWorkerSkip }, async () => {
   const worker = new Worker(path.resolve('electron/kokoro-onnx-worker.mjs'));
   try {
-    const result = await new Promise((resolve, reject) => { worker.once('error', reject); worker.once('message', resolve); worker.postMessage({ id: 1, modelPath: 'unused.onnx', voicesPath: 'unused.bin', text: 'test', voice: 'af_alloy' }); });
-    assert.equal(result.ok, false); assert.match(result.error, /Unsupported local Kokoro voice/);
+    const root = process.cwd();
+    const result = await finalWorkerMessage(worker, { id: 1, modelPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(root, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: 'test', voice: 'zz_missing' });
+    assert.equal(result.ok, false); assert.match(result.error, /missing from voices-v1\.0\.bin/);
   } finally { await worker.terminate(); }
 });
 async function present(file) { try { return (await fs.stat(file)).size > 0; } catch { return false; } }
+function finalWorkerMessage(worker, payload) {
+  return new Promise((resolve, reject) => {
+    const progress = [];
+    worker.once('error', reject);
+    worker.on('message', (message) => {
+      if (message.type === 'progress') { progress.push(message.stage); return; }
+      if (message.ok) {
+        assert.ok(progress.length, 'worker should report at least one TTS progress stage');
+        resolve(message);
+      } else {
+        message.progress = progress;
+        resolve(message);
+      }
+    });
+    worker.postMessage(payload);
+  });
+}

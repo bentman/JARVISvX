@@ -10,6 +10,7 @@ let executionProvider = 'wasm'; let benchmarkedWake = false; let listening = tru
 const threshold = 0.5;
 const frameSamples = 1280;
 const preRollSamples = 48_000;
+const wakeCommandPreRollSamples = 9_600;
 
 self.onmessage = async ({ data }: MessageEvent) => {
   try {
@@ -72,13 +73,13 @@ function resetCapture() {
 
 function startCapture(includePreRoll: boolean) {
   active = true;
-  utterance = includePreRoll ? preRoll.slice(Math.max(0, preRoll.length - preRollSamples + frameSamples)) : [];
+  utterance = includePreRoll ? preRoll.slice(-wakeCommandPreRollSamples) : [];
   silenceFrames = 0;
   partialSamples = 0;
 }
 
 function cleanTranscript(text: string) {
-  return String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis[\s,.:;-]+/i, '').trim();
+  return String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis\b[\s,.:;-]*/i, '').trim();
 }
 
 function hasSpeech(samples: Float32Array) {
