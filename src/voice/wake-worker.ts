@@ -25,8 +25,11 @@ self.onmessage = async ({ data }: MessageEvent) => {
   } catch (error: any) { postMessage({ type: 'error', message: error.message || String(error) }); }
 };
 
+let sttProvider = 'wasm';
+
 async function initialize(baseUrl: string) {
-  ort.env.wasm.numThreads = 1;
+  const threads = Math.min(4, Math.max(1, (self as any).navigator?.hardwareConcurrency || 2));
+  ort.env.wasm.numThreads = threads;
   postMessage({ type: 'loading', message: 'Loading wake word ONNX assets.' });
   const assets = await Promise.all(['melspectrogram.onnx', 'embedding_model.onnx', 'hey_jarvis_v0.1.onnx'].map(async (file) => ({ file, bytes: await fetchAsset(`${baseUrl}/wake.hey-jarvis/${file}`, file) })));
   const load = async (provider: string) => Promise.all(assets.map(({ bytes }) => ort.InferenceSession.create(bytes, { executionProviders: [provider] }) as unknown as Promise<Model>));
@@ -35,11 +38,22 @@ async function initialize(baseUrl: string) {
     try { [mel, embedding, wake] = await load('webgpu'); await mel.run({ [mel.inputNames[0]]: new ort.Tensor('float32', new Float32Array(12600), [1, 12600]) }); executionProvider = 'webgpu'; }
     catch { [mel, embedding, wake] = await load('wasm'); }
   } else [mel, embedding, wake] = await load('wasm');
-  postMessage({ type: 'benchmark', component: 'wake', executionProvider, initializationMs: Math.round(performance.now() - started) });
+  postMessage({ type: 'benchmark', component: 'wake', executionProvider, threads: executionProvider === 'wasm' ? threads : undefined, initializationMs: Math.round(performance.now() - started) });
   await initializeVad(baseUrl);
   postMessage({ type: 'loading', message: 'Loading local Whisper speech recognition.' });
   env.allowRemoteModels = false; env.allowLocalModels = true; env.localModelPath = `${baseUrl}/`;
-  transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'wasm' });
+  if (executionProvider === 'webgpu') {
+    try {
+      transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'webgpu' });
+      sttProvider = 'webgpu';
+    } catch {
+      transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'wasm' });
+      sttProvider = 'wasm';
+    }
+  } else {
+    transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'wasm' });
+    sttProvider = 'wasm';
+  }
   initialized = true; active = mode === 'conversation' && listening; postMessage({ type: 'ready' }); void drainFrames().catch((error) => postMessage({ type: 'error', message: error.message || String(error) }));
 }
 
@@ -58,8 +72,8 @@ async function processFrame(frame: Float32Array) {
     const speechScore = vadReady ? await vadScore(frame) : null;
     const quiet = speechScore == null ? rms < 0.012 : speechScore < 0.35 && rms < 0.018;
     silenceFrames = quiet ? silenceFrames + 1 : 0;
-    if (silenceFrames >= 12 && utterance.length > 8_000) { const samples = new Float32Array(utterance); active = mode === 'conversation'; utterance = []; silenceFrames = 0; partialSamples = 0; if (!(await hasSpeech(samples))) { postMessage({ type: 'transcript', text: '', rawText: '' }); return; } postMessage({ type: 'transcribing', samples: samples.length }); const started = performance.now(); const result = await transcriber(samples); postMessage({ type: 'benchmark', component: 'stt', executionProvider: 'wasm', inferenceMs: Math.round(performance.now() - started), samples: samples.length }); postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() }); }
-    else if (utterance.length >= 48000 && utterance.length - partialSamples >= 48000) { partialSamples = utterance.length; const samples = new Float32Array(utterance); if (!(await hasSpeech(samples))) return; const partial = await transcriber(samples); const text = cleanTranscript(partial.text); if (text) postMessage({ type: 'partial-transcript', text }); }
+    if (silenceFrames >= 12 && utterance.length > 8_000) { const samples = new Float32Array(utterance); active = mode === 'conversation'; utterance = []; silenceFrames = 0; partialSamples = 0; if (!(await hasSpeech(samples))) { postMessage({ type: 'transcript', text: '', rawText: '' }); return; } postMessage({ type: 'transcribing', samples: samples.length }); const started = performance.now(); const result = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); postMessage({ type: 'benchmark', component: 'stt', executionProvider: sttProvider, inferenceMs: Math.round(performance.now() - started), samples: samples.length }); postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() }); }
+    else if (utterance.length >= 48000 && utterance.length - partialSamples >= 48000) { partialSamples = utterance.length; const samples = new Float32Array(utterance); if (!(await hasSpeech(samples))) return; const partial = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); const text = cleanTranscript(partial.text); if (text) postMessage({ type: 'partial-transcript', text }); }
     return;
   }
   if (mode !== 'wake') return;

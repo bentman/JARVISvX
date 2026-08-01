@@ -34,7 +34,8 @@
     "onnxruntime-web": "^1.22.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "onnxruntime-node": "^1.22.0"
   },
   "devDependencies": {
     "@electron/packager": "20.0.0",
@@ -44,9 +45,6 @@
     "@vitejs/plugin-react": "^5.0.2",
     "concurrently": "^9.1.2",
     "typescript": "^5.9.2"
-  },
-  "overrides": {
-    "sharp": "0.35.3"
   },
   "allowScripts": {
     "electron@39.8.10": true,

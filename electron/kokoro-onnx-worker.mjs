@@ -26,8 +26,8 @@ async function synthesize(modelPath, voicesPath, text, voice, report = () => {})
   if (!String(text || '').trim()) throw new Error('Cannot synthesize an empty sentence.');
   await loadRuntime(modelPath, voicesPath, report);
   const voiceStyle = await loadVoiceStyle(voicesPath, voice, report);
-  report('phonemize', 'Phonemizing text with local eSpeak NG.');
-  const phonemes = await espeak(String(text)); const tokens = [...phonemes].map((x) => V[x]).filter((x) => x !== undefined).slice(0, MAX_PHONEME_LENGTH);
+  report('phonemize', 'Phonemizing text with local eSpeak NG / JS phonemizer fallback.');
+  const phonemes = await phonemize(String(text)); const tokens = [...phonemes].map((x) => V[x]).filter((x) => x !== undefined).slice(0, MAX_PHONEME_LENGTH);
   report('tokens', `Kokoro received ${tokens.length} supported phoneme tokens.`, { phonemeCount: phonemes.length, tokenCount: tokens.length });
   if (!tokens.length) throw new Error('No supported Kokoro phonemes were produced.');
   const width = voiceStyle.shape.at(-1); const index = Math.min(tokens.length, voiceStyle.shape[0] - 1); const style = voiceStyle.data.slice(index * width, (index + 1) * width);
@@ -48,6 +48,39 @@ async function loadRuntime(modelPath, _voicesPath, report = () => {}) {
   })() };
   try { await loading.promise; }
   finally { if (loading?.key === runtimeKey) loading = undefined; }
+}
+async function phonemize(text) {
+  try {
+    const espeakOut = await espeak(text);
+    if (espeakOut && espeakOut.trim().length > 0) return espeakOut;
+  } catch {}
+  return jsPhonemize(text);
+}
+function jsPhonemize(text) {
+  const dictionary = {
+    'jarvis': 'ʤɑɹvɪs', 'hello': 'hələʊ', 'world': 'wɚld', 'ready': 'ɹɛdi', 'test': 'tɛst',
+    'is': 'ɪz', 'the': 'ðə', 'a': 'ə', 'an': 'æn', 'this': 'ðɪs', 'that': 'ðæt', 'to': 'tu',
+    'in': 'ɪn', 'on': 'ɑn', 'at': 'æt', 'for': 'fɔɹ', 'of': 'ʌv', 'with': 'wɪð', 'by': 'baɪ',
+    'from': 'fɹʌm', 'you': 'ju', 'me': 'mi', 'we': 'wi', 'be': 'bi', 'can': 'kæn', 'will': 'wɪl', 'are': 'ɑɹ',
+    'yes': 'jɛs', 'no': 'no', 'okay': 'oʊkeɪ', 'ok': 'oʊkeɪ', 'system': 'sɪstəm', 'voice': 'vɔɪs', 'assistant': 'əsɪstənt',
+    'one': 'wʌn', 'two': 'tu', 'three': 'θɹi', 'four': 'fɔɹ', 'five': 'faɪv', 'six': 'sɪks', 'seven': 'sɛvən', 'eight': 'eɪt', 'nine': 'naɪn', 'zero': 'zɪɹo',
+    'dont': 'doʊnt', 'cant': 'kænt', 'its': 'ɪts', 'im': 'aɪm', 'whats': 'wʌts', 'theres': 'ðɛɹz'
+  };
+  const words = String(text || '').toLowerCase().split(/(\s+|[;:,\.!?])/);
+  let result = '';
+  for (const part of words) {
+    if (!part) continue;
+    if (/^[;:,\.!?\s]+$/.test(part)) { result += part; continue; }
+    const cleanWord = part.replace(/[^a-z]/g, '');
+    if (!cleanWord) continue;
+    if (dictionary[cleanWord]) { result += dictionary[cleanWord]; }
+    else {
+      let w = cleanWord;
+      w = w.replace(/ch/g, 'ʧ').replace(/sh/g, 'ʃ').replace(/th/g, 'ð').replace(/ng/g, 'ŋ').replace(/ph/g, 'f').replace(/qu/g, 'kw').replace(/ck/g, 'k').replace(/ee|ea/g, 'i').replace(/oo/g, 'u').replace(/ou|ow/g, 'aʊ').replace(/ai|ay/g, 'eɪ').replace(/oi|oy/g, 'ɔɪ').replace(/or/g, 'ɔɹ').replace(/ar/g, 'ɑɹ').replace(/er|ir|ur/g, 'ɚ').replace(/igh/g, 'aɪ').replace(/a/g, 'æ').replace(/e/g, 'ɛ').replace(/i/g, 'ɪ').replace(/o/g, 'ɑ').replace(/u/g, 'ʌ').replace(/c/g, 'k').replace(/g/g, 'ɡ').replace(/j/g, 'ʤ').replace(/r/g, 'ɹ').replace(/x/g, 'ks').replace(/y/g, 'j');
+      result += w;
+    }
+  }
+  return [...result].filter((char) => V[char] !== undefined).join('');
 }
 function espeak(text) { return new Promise((resolve, reject) => { const child = spawn(process.env.JARVIS_ESPEAK_PATH || 'espeak-ng', ['--ipa=3', '-q', text], { windowsHide: true }); let out = ''; child.stdout.on('data', (x) => out += x); child.on('error', () => reject(new Error('Local eSpeak NG is unavailable.'))); child.on('close', (code) => code === 0 ? resolve(out.trim()) : reject(new Error(`Local eSpeak NG failed (${code}).`))); }); }
 async function loadVoiceStyle(voicesPath, voice, report = () => {}) {
@@ -97,6 +130,9 @@ function requireOnnxRuntime() {
   try { return require('onnxruntime-node'); }
   catch (error) {
     try { return require(path.join(here, '..', 'node_modules', '@huggingface', 'transformers', 'node_modules', 'onnxruntime-node')); }
-    catch { throw error; }
+    catch {
+      try { return require('onnxruntime-web'); }
+      catch { throw error; }
+    }
   }
 }
