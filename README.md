@@ -1,69 +1,128 @@
 # JARVISvX
 
-JARVISvX is a local assistant with a loopback-only daemon, an Electron voice host, and a `jarvis` CLI. The daemon owns SQLite state, provider access, active turns, local voice-model bootstrap, and the event stream shared by both clients.
+Local-first voice and terminal AI assistant. A loopback-only daemon owns SQLite state, provider routing, and an SSE event stream shared by two clients: an Electron voice host and a `jarvis` CLI.
 
 ## Requirements
 
-- Node.js 24.15 or newer
-- A local LLM runtime: llama.cpp / llama.app or Ollama
-- Windows microphone permission for the Electron host
+- **Node.js** ≥ 24.15
+- **LLM runtime** — llama.cpp / llama.app (`http://127.0.0.1:8080`) or Ollama (`http://127.0.0.1:11434`)
+- **Windows** — microphone permission required for the Electron host
 
-## Desktop
+## Quick Start
 
 ```powershell
 npm install
 npm run build
+
+# Desktop (Electron voice host)
+npm run desktop
+
+# CLI
+npm link
+jarvis
+```
+
+`jarvis` attaches to a running daemon or starts the Electron host if none is found.
+
+## Usage
+
+### Desktop
+
+```powershell
 npm run desktop
 ```
 
-The Electron host runs the local voice lifecycle: wake listening, capture, Whisper transcription, model streaming, and Kokoro playback. Closing its window hides it in the tray; use **Quit** from the tray menu to stop the host.
+Runs the Electron voice host: wake-word listening → microphone capture → Whisper transcription → model streaming → Kokoro TTS playback. Closing the window hides to tray; use **Quit** from the tray menu to exit.
 
-The first-run voice bootstrap downloads the local wake-word, Whisper, and Kokoro model bundles. `bf_isabella` is the available default Kokoro voice.
+First run downloads wake-word, Whisper, and Kokoro model bundles into `models/`. Default voice: `bf_isabella`.
 
-## CLI
+### CLI
 
 ```powershell
-npm link
-jarvis
-jarvis ask "summarize this project"
-jarvis doctor
-jarvis daemon
+jarvis                                    # interactive REPL
+jarvis ask "summarize this project"       # one-shot
+jarvis doctor                             # check daemon, providers, models
+jarvis daemon                             # start daemon in foreground
 jarvis workspace add E:\WORK\CODE\REPO\JARVISvX
 ```
 
-`jarvis` opens the interactive terminal client. It attaches to an existing daemon or starts the hidden Electron voice host when needed.
+**Interactive commands:**
 
-Interactive commands:
-
-```text
-/new /sessions /resume /provider /model /voice /listen /mute /interrupt
-/doctor /workspace /settings /approve-cloud /help /exit
+```
+/new  /sessions  /resume  /provider  /model  /voice  /listen  /mute  /interrupt
+/doctor  /workspace  /settings  /approve-cloud  /help  /exit
 ```
 
-## Development and diagnostics
+### Development
 
 ```powershell
-npm run dev       # starts the singleton daemon
-npm run build
-npm test
-jarvis doctor
+npm run dev          # start daemon (server.mjs, port 3210)
+npm run build        # vite build → dist/
+npm test             # Node built-in test runner
+npm run lint         # tsc --noEmit
 ```
 
-`npm run dev` does not start Vite or a second application core. Build before starting the desktop host or daemon when `dist` does not exist.
+`npm run dev` starts only the daemon — not Vite or a second process. Build before running the desktop host if `dist/` is absent.
 
-## Storage
+## Configuration
 
-JARVIS keeps its artifacts in the repository directory:
+Copy `.env.example` to `.env` and adjust as needed:
 
-- `models\wake`, `models\stt`, `models\tts`: durable, hash-verified voice model bundles
-- `data\sql-db`: SQLite database and daemon discovery/lock while running
-- `data\electron-profile`: durable Electron profile
-- `cache`: re-creatable state; `cache\temp` is temporary download staging
+```env
+JARVIS_PORT=3210
+JARVIS_LLAMACPP_URL=http://127.0.0.1:8080/v1
+JARVIS_OLLAMA_URL=http://127.0.0.1:11434
 
-It does not use `%APPDATA%` or a home-directory JARVIS data folder.
+# Optional — requires explicit per-turn approval
+JARVIS_CLOUD_URL=
+JARVIS_CLOUD_MODEL=
+JARVIS_CLOUD_API_KEY=
+```
 
-## Providers and safety
+## Storage Layout
 
-llama.cpp / llama.app and Ollama use local HTTP endpoints. The optional OpenAI-compatible cloud provider reads `JARVIS_CLOUD_URL`, `JARVIS_CLOUD_MODEL`, and `JARVIS_CLOUD_API_KEY` from the environment; each cloud turn requires explicit approval.
+All artifacts are kept inside the repository directory.
 
-Workspace tools are read-only. They require an approved root, read UTF-8 text only, and limit reads to 1 MiB. JARVIS does not write workspace files, execute generated code, install skills, or retain raw microphone audio by default.
+| Path | Contents |
+|---|---|
+| `models/wake` | Wake-word ONNX bundle |
+| `models/stt` | Whisper STT bundle |
+| `models/tts` | Kokoro TTS bundle |
+| `data/sql-db` | SQLite database; daemon lock/discovery file while running |
+| `data/electron-profile` | Durable Electron user profile |
+| `cache/` | Re-creatable runtime state (`cache/temp` = download staging) |
+
+No data is written to `%APPDATA%` or a home-directory folder.
+
+## Providers
+
+| Provider | Transport | Notes |
+|---|---|---|
+| llama.cpp / llama.app | Local HTTP | Default; no approval required |
+| Ollama | Local HTTP | Default; no approval required |
+| OpenAI-compatible cloud | HTTPS | Requires explicit per-turn `/approve-cloud` |
+
+## Architecture
+
+```
+jarvis CLI  ─┐
+              ├─ SSE / HTTP ─── daemon (Express, port 3210)
+Electron     ─┘                   │
+host                           SQLite (sessions, memory, settings)
+                                  │
+                               providers.mjs (llama.cpp · Ollama · cloud)
+                               mcp-skills.mjs (tool calls)
+                               voice-runtime.mjs (wake · Whisper · Kokoro)
+```
+
+**lib/** modules: `application`, `daemon`, `database`, `diagnostics`, `event-hub`, `mcp-skills`, `memory-engine`, `model-bootstrap`, `orchestrator`, `providers`, `tools`, `voice-runtime`, `voice-transcript`, `api`.
+
+## Safety
+
+- Workspace tools are **read-only**: approved root required, UTF-8 text only, 1 MiB limit per read.
+- JARVIS does not write workspace files, execute generated code, install skills, or retain raw microphone audio.
+- Cloud turns require explicit in-session approval (`/approve-cloud`).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

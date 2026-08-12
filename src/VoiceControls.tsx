@@ -5,7 +5,7 @@ import './voice-diagnostics.css';
 
 function useVoice() {
   const [voice, setVoice] = useState<any>(null);
-  const refresh = async () => { try { setVoice(await api.voice()); } catch (error: any) { setVoice({ error: error.message }); } };
+  const refresh = async () => { try { setVoice(await api.voice()); } catch (error: any) { setVoice({ error: error.message, state: 'error', detail: error.message, models: [] }); } };
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 1_000); return () => window.clearInterval(timer); }, []);
   return { voice, refresh };
 }

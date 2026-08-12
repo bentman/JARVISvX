@@ -24,7 +24,7 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
       enabled.current = Boolean(status.enabled);
       mode.current = 'wake';
       voice.current = status.voice || 'bf_isabella';
-      const missing = status.models.filter((model: any) => !model.ready && !model.optional);
+      const missing = (status.models || []).filter((model: any) => !model.ready && !model.optional);
       if (missing.length) { stateRef.current('bootstrap', `Missing local voice assets: ${missing.map((model: any) => model.id).join(', ')}. Connect to the network and use Install voice assets.`); return; }
       try {
         started = true;

@@ -19,7 +19,7 @@
     "desktop": "electron .",
     "dev:desktop": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:3210 && electron .\"",
     "package:desktop": "npm run build && node scripts/package-desktop.mjs",
-    "test": "node --test --test-concurrency=1 test/application.test.mjs test/daemon.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/model-bootstrap.test.mjs test/providers.test.mjs test/tools.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
+    "test": "node --test --test-concurrency=1 test/application.test.mjs test/daemon.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/mcp-skills.test.mjs test/memory-center.test.mjs test/model-bootstrap.test.mjs test/orchestration.test.mjs test/providers.test.mjs test/tools.test.mjs test/voice-hud.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -46,10 +46,18 @@
     "concurrently": "^9.1.2",
     "typescript": "^5.9.2"
   },
+  "overrides": {
+    "adm-zip": "^0.6.0",
+    "nanoid": "^3.3.17",
+    "brace-expansion": "^2.0.1",
+    "sharp": "^0.35.0"
+  },
   "allowScripts": {
     "electron@39.8.10": true,
     "esbuild@0.28.1": true,
     "onnxruntime-node@1.21.0": true,
-    "protobufjs@7.6.5": true
+    "protobufjs@7.6.5": true,
+    "onnxruntime-node@1.27.0": true,
+    "sharp@0.34.5": true
   }
 }
