@@ -9,3 +9,4 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
     return () => ipcRenderer.removeListener('jarvis:tts-progress', listener);
   }
 });
+

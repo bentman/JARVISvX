@@ -719,3 +719,4 @@ export function McpSkillsView() {
     </div>
   );
 }
+

@@ -44,3 +44,4 @@ async function wav16k(file) {
   assert.deepEqual(format, { channels: 1, sampleRate: 16000, bits: 16 }, `${file} must remain mono 16-bit 16 kHz PCM`);
   return Float32Array.from(new Int16Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 2), (value) => value / 32768);
 }
+

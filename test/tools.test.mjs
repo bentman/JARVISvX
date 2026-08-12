@@ -14,3 +14,4 @@ test('workspace reader permits approved UTF-8 files only', async () => {
   await assert.rejects(readWorkspaceFile(outside, [root]), { code: 'not_authorized' });
   await fs.rm(directory, { recursive: true, force: true });
 });
+

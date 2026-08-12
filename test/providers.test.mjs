@@ -16,3 +16,4 @@ test('llama.cpp provider lists models and parses OpenAI SSE tokens', async (t) =
   let reply = ''; for await (const token of provider.streamChat({ messages: [{ role: 'user', content: 'Hi' }] })) reply += token;
   assert.equal(reply, 'Hello world');
 });
+

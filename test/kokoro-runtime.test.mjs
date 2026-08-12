@@ -116,3 +116,4 @@ function finalWorkerMessage(worker, payload) {
     worker.postMessage(payload);
   });
 }
+

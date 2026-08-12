@@ -126,3 +126,4 @@ host                           SQLite (sessions, memory, settings)
 ## License
 
 MIT — see [LICENSE](LICENSE).
+

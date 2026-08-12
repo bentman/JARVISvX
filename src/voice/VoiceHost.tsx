@@ -184,3 +184,4 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
   useEffect(() => { setControlsTarget(document.querySelector('.model-controls')); }, []);
   return controlsTarget ? createPortal(<VoiceControls />, controlsTarget) : null;
 }
+

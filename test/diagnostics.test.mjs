@@ -13,3 +13,4 @@ test('uses a vendor driver VRAM report instead of a legacy Windows adapter value
   assert.equal(inventory[1].memoryBytes, null);
   assert.equal(inventory[1].memorySource, 'unavailable');
 });
+

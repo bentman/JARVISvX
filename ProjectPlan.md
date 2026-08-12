@@ -68,3 +68,4 @@ The daemon exclusively owns SQLite, active turns, providers, model bootstrap, lo
 - The daemon starts/maintains a hidden Electron voice host when launched from the CLI alone.
 - Bootstrap owns wake/STT/TTS assets and tuning. It detects and recommends local LLM configuration but does not automatically download/manage a primary LLM in this phase.
 - Skills, MCP, agent orchestration, remote memory sync, autonomous edits, and self-evolution remain intentionally deferred; the clients must nevertheless have the interaction model and command structure to accommodate them later.
+

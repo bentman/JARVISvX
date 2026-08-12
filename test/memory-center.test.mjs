@@ -101,3 +101,4 @@ test('app initialization exposes memory methods and formats context', async () =
   db.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
+

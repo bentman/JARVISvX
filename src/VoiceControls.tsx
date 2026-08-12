@@ -32,3 +32,4 @@ export function VoiceDiagnostics() {
   const { voice } = useVoice();
   return <section className="voice-diagnostics"><h3>Voice</h3>{voice?.error ? <p className="muted">{voice.error}</p> : <><div className="voice-models">{voice?.models?.map((model: any) => <div className="voice-model" key={model.id}><span className={model.ready ? 'online-dot' : 'offline-dot'} /><div><b>{model.family}</b><small>{model.ready ? `models\\${model.directory}` : 'Not installed'}</small></div></div>) || <p className="muted">Loading local voice assets…</p>}</div><p className="muted">Mode: {voice?.mode || 'wake'} · State: {voice?.state || 'loading'}</p>{voice?.tuning?.measurements ? <p className="muted">Wake: {voice.tuning.measurements.wake?.executionProvider || 'unknown'} · STT: {voice.tuning.measurements.stt?.inferenceMs || 'n/a'} ms</p> : null}</>}</section>;
 }
+

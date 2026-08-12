@@ -83,3 +83,4 @@ test('app initialization exposes orchestration methods', async () => {
   db.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
+

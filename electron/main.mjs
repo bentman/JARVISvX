@@ -80,3 +80,4 @@ function getTtsWorker() {
   worker.on('exit', (code) => { if (ttsWorker !== worker) return; for (const { resolve, progress } of ttsPending.values()) { progress?.('worker-exit', `Local Kokoro worker exited (${code}).`); resolve({ ok: false, stage: 'worker-exit', error: `Local Kokoro worker exited (${code}).`, sampleRate: 24_000, samples: new Float32Array() }); } ttsPending.clear(); ttsWorker = undefined; });
   return worker;
 }
+

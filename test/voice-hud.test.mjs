@@ -62,3 +62,4 @@ test('voice runtime handles partial and final speech transcripts', () => {
   db.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
+

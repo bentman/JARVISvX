@@ -19,3 +19,4 @@ test('database persists settings, conversations, and messages', () => {
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
+

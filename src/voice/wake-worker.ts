@@ -191,3 +191,4 @@ async function wakeScore(samples: Float32Array) {
   if (!benchmarkedWake) { benchmarkedWake = true; postMessage({ type: 'benchmark', component: 'wake', executionProvider, inferenceMs: Math.round(performance.now() - started) }); }
   return Number(result[wake.outputNames[0]].data[0]);
 }
+
