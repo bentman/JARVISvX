@@ -127,3 +127,7 @@ host                           SQLite (sessions, memory, settings)
 
 MIT — see [LICENSE](LICENSE).
 
+```powershell
+Start-Process npm.cmd -ArgumentList "run desktop" -WorkingDirectory (Get-Location)
+```
+
