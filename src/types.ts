@@ -4,6 +4,32 @@ export type Conversation = { id: string; title: string; created_at: string; upda
 export type Root = { id: string; path: string; added_at: string };
 export type Diagnostics = { generatedAt: string; system: { platform: string; arch: string; release: string; cpu: { model: string; speed: number }[]; memory: { total: number; free: number } }; acceleration: { status: string; reason?: string; gpus?: { name: string; memoryBytes: number | null; memorySource: string; memoryReason?: string }[]; npu?: { status: string; name?: string; reason?: string } }; providers: Provider[] };
 
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description: string;
+  adapter: string;
+  cli?: string;
+  command?: string;
+  voice: string;
+  capabilities: string[];
+  instructions: string;
+}
+
+export interface AgentRun {
+  id: string;
+  conversation_id: string | null;
+  agent_id: string;
+  adapter: string;
+  parent_run_id: string | null;
+  mode: 'solo' | 'delegate' | 'panel' | 'debate';
+  status: 'running' | 'completed' | 'failed';
+  objective: string;
+  result: string;
+  started_at: string;
+  completed_at: string | null;
+}
+
 export interface McpTool {
   name: string;
   description: string;

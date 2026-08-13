@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "agents": {
+    "architect": {
+      "name": "Architect (Claude Code)",
+      "description": "Designs systems and identifies boundaries using Claude Code CLI.",
+      "adapter": "acp",
+      "cli": "claude",
+      "command": "claude",
+      "voice": "bm_george",
+      "capabilities": [
+        "workspace.read",
+        "git.read"
+      ],
+      "instructions": "Prefer simple, composable designs. Challenge unnecessary abstractions."
+    },
+    "reviewer": {
+      "name": "Reviewer (Codex)",
+      "description": "Reviews implementation for correctness and regressions using Codex CLI.",
+      "adapter": "acp",
+      "cli": "codex",
+      "command": "codex",
+      "voice": "af_sarah",
+      "capabilities": [
+        "workspace.read",
+        "git.read"
+      ],
+      "instructions": "Be skeptical. Cite concrete defects and avoid speculative changes."
+    },
+    "researcher": {
+      "name": "Researcher (Antigravity)",
+      "description": "Surveys codebase documentation and APIs using Antigravity CLI.",
+      "adapter": "process",
+      "cli": "agy",
+      "command": "agy",
+      "voice": "bf_emma",
+      "capabilities": [
+        "workspace.read"
+      ],
+      "instructions": "Gather facts, synthesize documentation, and summarize findings clearly."
+    },
+    "security": {
+      "name": "Security (Copilot CLI)",
+      "description": "Audits code for vulnerabilities using GitHub Copilot CLI.",
+      "adapter": "acp",
+      "cli": "copilot",
+      "command": "copilot",
+      "voice": "bm_lewis",
+      "capabilities": [
+        "workspace.read"
+      ],
+      "instructions": "Inspect privilege boundaries, input sanitization, data leaks, and strict authentication controls."
+    },
+    "debugger": {
+      "name": "Debugger (Cline CLI)",
+      "description": "Diagnoses runtime failures and stack traces using Cline CLI.",
+      "adapter": "acp",
+      "cli": "cline",
+      "command": "cline",
+      "voice": "am_adam",
+      "capabilities": [
+        "workspace.read",
+        "shell"
+      ],
+      "instructions": "Analyze stack traces and root causes strictly based on empirical evidence."
+    },
+    "builder": {
+      "name": "Builder (Claude Code)",
+      "description": "Implements approved changes with clean code using Claude Code CLI.",
+      "adapter": "acp",
+      "cli": "claude",
+      "command": "claude",
+      "voice": "am_michael",
+      "capabilities": [
+        "workspace.read",
+        "workspace.write",
+        "shell"
+      ],
+      "instructions": "Implement the smallest complete change. Preserve existing conventions."
+    },
+    "adversary": {
+      "name": "Adversary (Codex)",
+      "description": "Presents counter-arguments in multi-agent debate using Codex CLI.",
+      "adapter": "acp",
+      "cli": "codex",
+      "command": "codex",
+      "voice": "af_bella",
+      "capabilities": [
+        "workspace.read"
+      ],
+      "instructions": "Challenge assumptions. Highlight hidden edge cases and failure modes."
+    }
+  }
+}

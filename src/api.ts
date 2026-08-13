@@ -1,4 +1,4 @@
-import type { Conversation, Diagnostics, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
+import type { AgentProfile, AgentRun, Conversation, Diagnostics, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
 
 declare global {
   interface Window {
@@ -15,9 +15,15 @@ let daemon: { port: number; token: string } | null = null;
 
 const setupDaemon = async () => {
   if (!daemon) {
-    if (window.jarvisDesktop) {
-      daemon = await window.jarvisDesktop.daemon();
-    } else {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const paramDaemon = params.get('daemon');
+      if (paramDaemon) daemon = JSON.parse(paramDaemon);
+    } catch {}
+    if (!daemon && window.jarvisDesktop) {
+      try { daemon = await window.jarvisDesktop.daemon(); } catch {}
+    }
+    if (!daemon) {
       try {
         const res = await fetch('/api/session');
         if (res.ok) daemon = await res.json();
@@ -96,6 +102,12 @@ export const api = {
   updateMemory: (id: string, data: Partial<MemoryItem>) => json<MemoryItem>(`/api/memory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteMemory: (id: string) => json<{ removed: boolean }>(`/api/memory/${id}`, { method: 'DELETE' }),
   searchMemories: (query: string, category?: string) => json<MemoryItem[]>('/api/memory/search', { method: 'POST', body: JSON.stringify({ query, category }) }),
+  // Agent Runtime API
+  agents: () => json<AgentProfile[]>('/api/agents'),
+  agent: (id: string) => json<AgentProfile>(`/api/agents/${id}`),
+  executeAgentRun: (options: { agentId?: string; agentIds?: string[]; objective: string; mode?: 'solo' | 'delegate' | 'panel' | 'debate'; conversationId?: string }) => json<AgentRun>('/api/agents/run', { method: 'POST', body: JSON.stringify(options) }),
+  agentRuns: (conversationId?: string) => json<AgentRun[]>(`/api/runs${conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''}`),
+
   autoSummarizeMemory: () => json<{ addedCount: number; totalMemories: number }>('/api/memory/auto-summarize', { method: 'POST', body: '{}' }),
 
   async *events(signal?: AbortSignal) {

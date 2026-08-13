@@ -17,15 +17,15 @@
     "start": "node daemon.mjs",
     "daemon": "node daemon.mjs",
     "desktop": "electron .",
-    "dev:desktop": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:3210 && electron .\"",
+    "dev:desktop": "concurrently -k \"npm run dev\" \"npx wait-on http://127.0.0.1:3210 && electron .\"",
     "package:desktop": "npm run build && node scripts/package-desktop.mjs",
-    "test": "node --test --test-concurrency=1 test/application.test.mjs test/daemon.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/mcp-skills.test.mjs test/memory-center.test.mjs test/model-bootstrap.test.mjs test/orchestration.test.mjs test/providers.test.mjs test/tools.test.mjs test/voice-hud.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
+    "test": "node --test --test-concurrency=1 test/agent-runtime.test.mjs test/application.test.mjs test/daemon.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/mcp-skills.test.mjs test/memory-center.test.mjs test/model-bootstrap.test.mjs test/orchestration.test.mjs test/providers.test.mjs test/tools.test.mjs test/voice-hud.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
     "dotenv": "^17.2.3",
-    "electron": "^39.2.1",
+    "electron": "^41.10.5",
     "express": "^5.1.0",
     "ink": "^6.8.0",
     "ink-text-input": "^6.0.0",
@@ -38,22 +38,26 @@
     "onnxruntime-node": "^1.22.0"
   },
   "devDependencies": {
-    "@electron/packager": "20.0.0",
+    "@electron/packager": "^20.3.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
     "concurrently": "^9.1.2",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "wait-on": "^9.0.0"
   },
   "overrides": {
     "adm-zip": "^0.6.0",
     "nanoid": "^3.3.17",
     "brace-expansion": "^2.0.1",
-    "sharp": "^0.35.0"
+    "sharp": "^0.35.0",
+    "extract-zip": "^2.0.1"
   },
   "allowScripts": {
     "electron@39.8.10": true,
+    "electron@40.10.6": true,
+    "electron@41.10.5": true,
     "esbuild@0.28.1": true,
     "onnxruntime-node@1.21.0": true,
     "protobufjs@7.6.5": true,
