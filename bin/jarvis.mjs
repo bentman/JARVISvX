@@ -21,7 +21,7 @@ async function workspace([action, value]) { if (action === 'list') console.table
 async function repl() { process.stderr.write('JARVIS CLI requires a TTY for the interactive interface. Use `jarvis ask "…"` for scripts.\n'); }
 
 function Tui({ client }) {
-  const { exit } = useApp(); const [input, setInput] = useState(''); const [lines, setLines] = useState([]); const [conversation, setConversation] = useState(null); const [status, setStatus] = useState('connecting'); const [provider, setProvider] = useState('default'); const [model, setModel] = useState(''); const [voiceState, setVoiceState] = useState('connecting'); const [cloudApproved, setCloudApproved] = useState(false); const activeTurn = useRef(null);
+  const { exit } = useApp(); const [input, setInput] = useState(''); const [lines, setLines] = useState([]); const [conversation, setConversation] = useState(null); const [status, setStatus] = useState('connecting'); const [provider, setProvider] = useState('default'); const [model, setModel] = useState(''); const [voiceState, setVoiceState] = useState('connecting'); const [cloudApproved, setCloudApproved] = useState(false); const [agentApproved, setAgentApproved] = useState(false); const activeTurn = useRef(null);
   useEffect(() => { client.providers().then((data) => { setProvider(data.settings.activeProvider); setModel(data.settings.activeModel || ''); setStatus('ready'); }).catch((error) => setStatus(error.message)); client.voice().then((voice) => setVoiceState(voice.state)).catch(() => setVoiceState('unavailable')); }, []);
   useEffect(() => { const controller = new AbortController(); void (async () => { try { for await (const event of client.events(controller.signal)) { if (event.type === 'voice-state') { setVoiceState(event.state); continue; } if (event.type === 'partial-transcript' || event.type === 'final-transcript') { setLines((items) => [...items, { role: 'voice', content: `${event.type === 'partial-transcript' ? 'Hearing' : 'Heard'}: ${event.text}` }]); continue; } if (event.type === 'playback') { setVoiceState(event.state === 'started' ? 'speaking' : event.state === 'complete' ? 'wake-listening' : voiceState); continue; } if (event.type === 'token' && event.conversationId !== activeTurn.current) { setLines((items) => { const last = items.at(-1); return last?.role === 'jarvis' && last.remoteConversationId === event.conversationId ? [...items.slice(0, -1), { ...last, content: last.content + event.value }] : [...items, { role: 'jarvis', remoteConversationId: event.conversationId, content: event.value }]; }); } if (event.type === 'cancelled' && event.conversationId !== activeTurn.current) setLines((items) => [...items, { role: 'system', content: `Remote turn cancelled (${event.conversationId?.slice(0, 8) || 'unknown'}).` }]); } } catch (error) { if (!controller.signal.aborted) setStatus(`event stream: ${error.message}`); } })(); return () => controller.abort(); }, [client]);
   useInput((value, key) => { if (key.escape && conversation) void client.cancel(conversation.id); if (key.ctrl && value === 'c') exit(); });
@@ -39,10 +39,12 @@ function Tui({ client }) {
         try {
           const run = await client.json('/agents/run', {
             method: 'POST',
-            body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id })
+            body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approved: agentApproved })
           });
+          setAgentApproved(false);
           setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result || 'Agent run complete.' }]);
         } catch (error) {
+          setAgentApproved(false);
           setLines((items) => [...items, { role: 'error', content: error.message }]);
         }
         return;
@@ -84,10 +86,12 @@ function Tui({ client }) {
         try {
           const run = await client.json('/agents/run', {
             method: 'POST',
-            body: JSON.stringify({ agentIds, objective, mode: name, conversationId: conversation?.id })
+            body: JSON.stringify({ agentIds, objective, mode: name, conversationId: conversation?.id, approved: agentApproved })
           });
+          setAgentApproved(false);
           setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result }]);
         } catch (error) {
+          setAgentApproved(false);
           setLines((items) => [...items, { role: 'error', content: error.message }]);
         }
         return;
@@ -98,6 +102,7 @@ function Tui({ client }) {
       if (name === 'provider' && rest[0]) { await client.setProvider(rest[0]); setProvider(rest[0]); setModel(''); return; }
       if (name === 'model') { if (!rest[0]) return setLines((items) => [...items, { role: 'system', content: `Model: ${model || 'not selected'}` }]); await client.setModel(provider, rest.join(' ')); setModel(rest.join(' ')); return; }
       if (name === 'approve-cloud') { setCloudApproved(true); return setLines((items) => [...items, { role: 'system', content: 'Cloud approved for the next turn only.' }]); }
+      if (name === 'approve-agent') { setAgentApproved(true); return setLines((items) => [...items, { role: 'system', content: 'Privileged agent capabilities approved for the next agent run only.' }]); }
       if (name === 'workspace') { const [action, value] = rest; if (action === 'list') { const roots = await client.json('/workspace-roots'); return setLines((items) => [...items, { role: 'system', content: roots.map((root) => `${root.id.slice(0, 8)}  ${root.path}`).join('\n') || 'No approved workspace roots.' }]); } if (action === 'add' && value) { const root = await client.json('/workspace-roots', { method: 'POST', body: JSON.stringify({ path: value }) }); return setLines((items) => [...items, { role: 'system', content: `Approved: ${root.path}` }]); } return setLines((items) => [...items, { role: 'error', content: 'Usage: /workspace list | /workspace add <absolute-path>' }]); }
       if (name === 'settings') { const settings = await client.providers(); const voice = await client.voice(); return setLines((items) => [...items, { role: 'system', content: JSON.stringify({ ...settings.settings, voice: { state: voice.state, voice: voice.voice } }, null, 2) }]); }
       if (name === 'help') return setLines((items) => [...items, { role: 'system', content: [
@@ -115,6 +120,7 @@ function Tui({ client }) {
         '/mute              Mute voice wake word listening',
         '/interrupt         Stop active assistant turn or playback',
         '/approve-cloud     Approve cloud escalation for the next prompt',
+        '/approve-agent     Approve privileged agent capabilities for the next agent run',
         '/doctor            Display live system hardware & runtime diagnostics',
         '/workspace         Manage approved workspace folder roots (list | add <path>)',
         '/settings          Print current active daemon & voice settings',

@@ -105,7 +105,7 @@ export const api = {
   // Agent Runtime API
   agents: () => json<AgentProfile[]>('/api/agents'),
   agent: (id: string) => json<AgentProfile>(`/api/agents/${id}`),
-  executeAgentRun: (options: { agentId?: string; agentIds?: string[]; objective: string; mode?: 'solo' | 'delegate' | 'panel' | 'debate'; conversationId?: string }) => json<AgentRun>('/api/agents/run', { method: 'POST', body: JSON.stringify(options) }),
+  executeAgentRun: (options: { agentId?: string; agentIds?: string[]; objective: string; mode?: 'solo' | 'delegate' | 'panel' | 'debate'; conversationId?: string; requestedCapabilities?: string[]; approved?: boolean }) => json<AgentRun>('/api/agents/run', { method: 'POST', body: JSON.stringify(options) }),
   agentRuns: (conversationId?: string) => json<AgentRun[]>(`/api/runs${conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''}`),
 
   autoSummarizeMemory: () => json<{ addedCount: number; totalMemories: number }>('/api/memory/auto-summarize', { method: 'POST', body: '{}' }),

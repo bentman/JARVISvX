@@ -91,6 +91,11 @@ export function AgentOrchestrationView() {
   const [objective, setObjective] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'profiles' | 'runs'>('profiles');
+  const [approved, setApproved] = useState(false);
+
+  const selectedProfile = agents.find((agent) => agent.id === selectedAgent);
+  const selectedCapabilities = selectedMode === 'solo' ? selectedProfile?.capabilities ?? [] : [];
+  const needsApproval = selectedCapabilities.some((capability) => capability === 'workspace.write' || capability === 'shell');
 
   const loadData = async () => {
     try {
@@ -122,9 +127,12 @@ export function AgentOrchestrationView() {
         agentId: selectedAgent,
         agentIds: ['architect', 'reviewer', 'adversary'],
         objective,
-        mode: selectedMode
+        mode: selectedMode,
+        requestedCapabilities: selectedCapabilities,
+        approved: !needsApproval || approved
       });
       setObjective('');
+      setApproved(false);
       await loadData();
       setActiveTab('runs');
     } catch {}
@@ -189,6 +197,17 @@ export function AgentOrchestrationView() {
           )}
         </div>
 
+        {needsApproval && (
+          <label className="flex items-center gap-2 text-xs text-amber-300">
+            <input
+              type="checkbox"
+              checked={approved}
+              onChange={(e) => setApproved(e.target.checked)}
+            />
+            Approve privileged agent capabilities for this run.
+          </label>
+        )}
+
         <div className="flex gap-2">
           <input
             type="text"
@@ -199,7 +218,7 @@ export function AgentOrchestrationView() {
           />
           <button
             type="submit"
-            disabled={loading || !objective.trim()}
+            disabled={loading || !objective.trim() || (needsApproval && !approved)}
             className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-50"
           >
             <Play className="w-4 h-4" />
