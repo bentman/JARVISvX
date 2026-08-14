@@ -229,37 +229,37 @@ export function AgentOrchestrationView() {
 
       {/* Profiles Tab */}
       {activeTab === 'profiles' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {agents.map((agent) => (
-            <div key={agent.id} className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div key={agent.id} className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80 hover:border-slate-700/80 transition-all space-y-2.5">
               <div className="flex justify-between items-start">
                 <div>
-                  <h3 className="font-bold text-slate-100 flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                     <Bot className="w-4 h-4 text-cyan-400" />
-                    {agent.name} <span className="text-xs font-mono text-cyan-400 font-normal">@{agent.id}</span>
+                    {agent.name} <span className="text-[11px] font-mono text-cyan-400 font-normal">@{agent.id}</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">{agent.description}</p>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1.5 shrink-0">
                   {agent.cli && (
-                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/60">
                       cli: {agent.cli}
                     </span>
                   )}
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60">
                     {agent.adapter}
                   </span>
                 </div>
               </div>
 
-              <div className="text-xs space-y-1 pt-2 border-t border-slate-800/80">
+              <div className="text-xs space-y-1.5 pt-2 border-t border-slate-800/80">
                 <div className="flex justify-between text-slate-400">
-                  <span>Voice Persona:</span>
-                  <span className="font-mono text-cyan-300">{agent.voice}</span>
+                  <span className="text-[11px] font-medium text-slate-400">Voice Persona:</span>
+                  <span className="font-mono text-cyan-300 text-[11px]">{agent.voice}</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Capabilities:</span>
-                  <span className="font-mono text-slate-300">{agent.capabilities.join(', ')}</span>
+                  <span className="text-[11px] font-medium text-slate-400">Capabilities:</span>
+                  <span className="font-mono text-slate-300 text-[11px]">{agent.capabilities.join(', ')}</span>
                 </div>
                 <p className="text-slate-400 italic text-[11px] pt-1">
                   "{agent.instructions}"
@@ -274,20 +274,20 @@ export function AgentOrchestrationView() {
       {activeTab === 'runs' && (
         <div className="space-y-3">
           {runs.map((run) => (
-            <div key={run.id} className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div key={run.id} className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80 space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-mono text-cyan-400 font-bold">
+                <span className="text-[11px] font-mono text-cyan-400 font-bold">
                   {run.mode.toUpperCase()} RUN · {run.agent_id}
                 </span>
-                <span className={`text-xs px-2 py-0.5 rounded font-semibold ${run.status === 'completed' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}`}>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-semibold font-mono ${run.status === 'completed' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60' : 'bg-amber-950/80 text-amber-300 border border-amber-800/60'}`}>
                   {run.status}
                 </span>
               </div>
 
-              <p className="text-sm font-semibold text-slate-200">{run.objective}</p>
+              <p className="text-xs font-semibold text-slate-200">{run.objective}</p>
 
               {run.result && (
-                <div className="bg-slate-950 p-3 rounded-lg text-xs text-slate-300 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-slate-800">
+                <div className="bg-slate-950 p-3 rounded-lg text-xs text-slate-300 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-slate-800/80">
                   {run.result}
                 </div>
               )}

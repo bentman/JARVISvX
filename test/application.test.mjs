@@ -31,6 +31,33 @@ test('chat stream events are correlated by conversation and turn id', async () =
   }
 });
 
+test('slash skill stream events use the same conversation and turn id routing', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+  db.addSkill({
+    name: 'Echo Skill',
+    slashCommand: '/echo',
+    description: 'Echoes skill input.',
+    code: "return `skill says ${input}`;"
+  });
+
+  try {
+    const events = [];
+    for await (const event of app.chat({ content: '/echo hello', providerId: 'unused' })) events.push(event);
+    assert.deepEqual(events.map((event) => event.type), ['start', 'token', 'turn-complete']);
+    assert.ok(events[0].conversationId);
+    assert.ok(events[0].turnId);
+    assert.deepEqual(events.map((event) => event.turnId), [events[0].turnId, events[0].turnId, events[0].turnId]);
+    assert.deepEqual(events.map((event) => event.conversationId), [events[0].conversationId, events[0].conversationId, events[0].conversationId]);
+    assert.equal(events[1].value, 'skill says hello');
+    assert.equal(app.cancel(events[0].conversationId, events[0].turnId), false);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('cancel can target the active conversation and turn id', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));

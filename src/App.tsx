@@ -26,7 +26,7 @@ export default function App() {
   const [roots, setRoots] = useState<Root[]>([]);
   const [rootInput, setRootInput] = useState('');
   const [error, setError] = useState('');
-  const [panel, setPanel] = useState<'diagnostics' | 'settings' | 'mcp_skills' | 'orchestration' | 'voice_hud' | 'memory' | 'agents' | null>(null);
+  const [panel, setPanel] = useState<'voice_hud' | 'agents' | 'mcp_skills' | 'orchestration' | 'memory' | 'workspaces' | 'diagnostics' | 'settings' | null>(null);
   const activeTurnRef = useRef<{ conversationId: string; turnId: string; assistantMessageId: string } | null>(null);
 
   const refresh = useCallback(async () => {
@@ -123,10 +123,90 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [current?.messages]);
 
-  return <div className="app-shell"><VoiceHost onTranscript={(value) => { void (async () => { const cleaned = cleanVoiceTranscript(value); if (!cleaned) { await api.setVoiceState('wake-listening', 'No speech was captured after the wake word.'); return; } const voice = await api.voice(); const target = voice.mode === 'wake' && current?.id !== 'pending' && (current?.messages?.length || 0) > 0 ? null : current?.id; const accepted = await api.voiceTranscript('final', cleaned, target || undefined); if (accepted.accepted) await send(undefined, cleaned, 'voice', target); else await api.setVoiceState('wake-listening', 'No usable speech was captured after the wake word.'); })(); }} onState={(state, detail) => { void api.setVoiceState(state, detail); }} onInterrupt={() => { void cancel(); }} /><aside><div className="brand"><Bot /> <span>JARVIS<span>vX</span></span></div><button className="new" onClick={newConversation}><MessageSquarePlus /> New conversation</button><nav>{conversations.map((item) => <div className={`nav-item ${current?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => selectConversation(item.id)}><span className="nav-title" title={item.title}>{item.title}</span><button className="nav-delete" onClick={(e) => deleteConversation(item.id, e)} title="Delete conversation"><Trash2 style={{ width: 14, height: 14 }} /></button></div>)}</nav><div className="aside-footer"><button onClick={() => setPanel('agents')}><Users /> Agent Runtime</button><button onClick={() => setPanel('memory')}><Brain /> Memory Center</button><button onClick={() => setPanel('voice_hud')}><Mic /> Voice HUD</button><button onClick={() => setPanel('orchestration')}><Cpu /> Orchestration</button><button onClick={() => setPanel('mcp_skills')}><Zap /> MCP & Skills</button><button onClick={() => setPanel('diagnostics')}><Activity /> Diagnostics</button><button onClick={() => setPanel('settings')}><Settings2 /> Workspace & settings</button><a href="https://llama.app" target="_blank" rel="noreferrer">llama.app <ChevronRight /></a></div></aside><main><header><div><p className="eyebrow">LOCAL-FIRST ASSISTANT</p><h1>Just A Rather Very Intelligent System</h1></div><div className="model-controls"><label className="provider-picker">Provider<select value={activeProvider} onChange={(e) => chooseProvider(e.target.value)}>{providers.map((provider) => <option key={provider.id} value={provider.id} disabled={!provider.available && provider.id !== 'cloud'}>{provider.label} {provider.available ? 'online' : provider.id === 'cloud' ? 'not configured' : 'unavailable'}</option>)}</select></label><label className="provider-picker">Model<select value={selectedModel} onChange={(e) => void chooseModel(e.target.value)} disabled={!availableModels.length}>{availableModels.length ? availableModels.map((model) => <option key={model} value={model}>{model}</option>) : <option value="">No model available</option>}</select></label></div></header>{error && <div className="alert"><span>{error}</span><button onClick={() => setError('')}><X /></button></div>}<section className="messages">{!current?.messages?.length && <div className="empty"><Cpu /><h2>Voice is the primary presence.</h2><p>Text is available when speaking is not practical.</p></div>}{current?.messages?.map((message) => <article className={`message ${message.role}`} key={message.id}><strong>{message.role === 'user' ? 'YOU' : 'JARVIS'}</strong><p>{message.content || (message.status === 'streaming' ? 'Thinking…' : '')}</p></article>)}<div ref={messagesEndRef} /></section><div className="composer-container">{activeProvider === 'cloud' && <label className="approval"><input type="checkbox" checked={cloudApproved} onChange={(e) => setCloudApproved(e.target.checked)} /><Cloud /> I approve sending this single request to my configured cloud provider.</label>}<form className="composer" onSubmit={(event) => send(event)}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={selectedModel ? `Ask ${selectedModel} anything… (or type /slash skill or @agent)` : 'Choose a provider model, /slash skill, or @agent…'} rows={2} /><button type="button" disabled={!streaming} onClick={cancel} title="Cancel request"><CircleStop /></button><button type="submit" disabled={streaming || !input.trim()}><Send /> Send</button><button type="button" disabled={streaming} onClick={pushToTalk} title="Push to talk"><Mic /></button></form><p className="composer-help"><kbd>Enter</kbd> Send <span>·</span> <kbd>Alt</kbd> + <kbd>Enter</kbd> New line</p></div></main>{panel && <section className="side-panel" style={panel === 'mcp_skills' || panel === 'orchestration' || panel === 'voice_hud' || panel === 'memory' || panel === 'agents' ? { width: '85vw', maxWidth: '1200px' } : undefined}><button className="close" onClick={() => setPanel(null)}><X /></button>{panel === 'agents' ? <AgentOrchestrationView /> : panel === 'memory' ? <MemoryCenterView /> : panel === 'voice_hud' ? <VoiceHudView /> : panel === 'orchestration' ? <ModelOrchestrationView /> : panel === 'mcp_skills' ? <McpSkillsView /> : panel === 'diagnostics' ? <DiagnosticsPanel data={diagnostics} refresh={loadDiagnostics} /> : <SettingsPanel roots={roots} rootInput={rootInput} setRootInput={setRootInput} setRoots={setRoots} />}</section>}</div>;
+  return <div className="app-shell"><VoiceHost onTranscript={(value) => { void (async () => { const cleaned = cleanVoiceTranscript(value); if (!cleaned) { await api.setVoiceState('wake-listening', 'No speech was captured after the wake word.'); return; } const voice = await api.voice(); const target = voice.mode === 'wake' && current?.id !== 'pending' && (current?.messages?.length || 0) > 0 ? null : current?.id; const accepted = await api.voiceTranscript('final', cleaned, target || undefined); if (accepted.accepted) await send(undefined, cleaned, 'voice', target); else await api.setVoiceState('wake-listening', 'No usable speech was captured after the wake word.'); })(); }} onState={(state, detail) => { void api.setVoiceState(state, detail); }} onInterrupt={() => { void cancel(); }} /><aside><div className="brand"><Bot /> <span>JARVIS<span>vX</span></span></div><button className="new" onClick={newConversation}><MessageSquarePlus /> New conversation</button><nav>{conversations.map((item) => <div className={`nav-item ${current?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => selectConversation(item.id)}><span className="nav-title" title={item.title}>{item.title}</span><button className="nav-delete" onClick={(e) => deleteConversation(item.id, e)} title="Delete conversation"><Trash2 style={{ width: 14, height: 14 }} /></button></div>)}</nav><div className="aside-footer"><button onClick={() => setPanel('voice_hud')}><Mic /> Voice HUD</button><button onClick={() => setPanel('agents')}><Users /> Agent Runtime</button><button onClick={() => setPanel('mcp_skills')}><Zap /> MCP & Skills</button><button onClick={() => setPanel('orchestration')}><Cpu /> Orchestration</button><button onClick={() => setPanel('memory')}><Brain /> Memory Center</button><button onClick={() => setPanel('workspaces')}><FolderPlus /> Workspaces</button><button onClick={() => setPanel('diagnostics')}><Activity /> Diagnostics</button><button onClick={() => setPanel('settings')}><Settings2 /> Settings</button><a href="https://llama.app" target="_blank" rel="noreferrer">llama.app <ChevronRight /></a></div></aside><main><header><div><p className="eyebrow">LOCAL-FIRST ASSISTANT</p><h1>Just A Rather Very Intelligent System</h1></div><div className="model-controls"><button className="status-badge" onClick={() => setPanel('settings')} title="Click to manage Provider in Settings"><span className={activeProviderInfo?.available ? 'online-dot' : 'offline-dot'} /><span className="badge-label">Provider:</span> <strong className="badge-value">{activeProviderInfo?.label || activeProvider}</strong></button><button className="status-badge" onClick={() => setPanel('settings')} title="Click to manage Model in Settings"><span className="badge-label">Model:</span> <strong className="badge-value">{selectedModel || 'No model active'}</strong></button>{activeProvider === 'cloud' && <span className={`status-badge ${cloudApproved ? 'approved' : 'pending'}`}><Cloud style={{ width: 12, height: 12 }} /> {cloudApproved ? 'Cloud Approved' : 'Approval Pending'}</span>}</div></header>{error && <div className="alert"><span>{error}</span><button onClick={() => setError('')}><X /></button></div>}<section className="messages">{!current?.messages?.length && <div className="empty"><Cpu /><h2>Voice is the primary presence.</h2><p>Text is available when speaking is not practical.</p></div>}{current?.messages?.map((message) => <article className={`message ${message.role}`} key={message.id}><strong>{message.role === 'user' ? 'YOU' : 'JARVIS'}</strong><p>{message.content || (message.status === 'streaming' ? 'Thinking…' : '')}</p></article>)}<div ref={messagesEndRef} /></section><div className="composer-container">{activeProvider === 'cloud' && <label className="approval"><input type="checkbox" checked={cloudApproved} onChange={(e) => setCloudApproved(e.target.checked)} /><Cloud /> I approve sending this single request to my configured cloud provider.</label>}<form className="composer" onSubmit={(event) => send(event)}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={selectedModel ? `Ask ${selectedModel} anything… (or type /slash skill or @agent)` : 'Choose a provider model, /slash skill, or @agent…'} rows={2} /><button type="button" disabled={!streaming} onClick={cancel} title="Cancel request"><CircleStop /></button><button type="submit" disabled={streaming || !input.trim()}><Send /> Send</button><button type="button" disabled={streaming} onClick={pushToTalk} title="Push to talk"><Mic /></button></form><p className="composer-help"><kbd>Enter</kbd> Send <span>·</span> <kbd>Alt</kbd> + <kbd>Enter</kbd> New line</p></div></main>{panel && <section className="side-panel"><button className="close" onClick={() => setPanel(null)}><X /></button>{panel === 'voice_hud' ? <VoiceHudView /> : panel === 'agents' ? <AgentOrchestrationView /> : panel === 'mcp_skills' ? <McpSkillsView /> : panel === 'orchestration' ? <ModelOrchestrationView /> : panel === 'memory' ? <MemoryCenterView /> : panel === 'workspaces' ? <WorkspacesPanel roots={roots} rootInput={rootInput} setRootInput={setRootInput} setRoots={setRoots} /> : panel === 'diagnostics' ? <DiagnosticsPanel data={diagnostics} refresh={loadDiagnostics} /> : <SettingsPanel providers={providers} activeProvider={activeProvider} chooseProvider={chooseProvider} availableModels={availableModels} selectedModel={selectedModel} chooseModel={chooseModel} cloudApproved={cloudApproved} setCloudApproved={setCloudApproved} />}</section>}</div>;
 }
 function DiagnosticsPanel({ data, refresh }: { data: Diagnostics | null; refresh: () => void }) { return <><h2><Activity /> Diagnostics</h2><button className="small" onClick={refresh}>Refresh Telemetry</button>{!data ? <div className="diagnostics"><p>Fetching real local system diagnostics…</p><button className="small" onClick={refresh}>Force Retry</button></div> : <div className="diagnostics"><h3>System</h3><p>{data.system.platform} · {data.system.arch} · {data.system.cpu.length} CPU threads</p><p>Memory: {fmt(data.system.memory.free)} free / {fmt(data.system.memory.total)}</p><h3>Acceleration & Hardware Probes</h3>{data.acceleration.status === 'available' ? <> {data.acceleration.gpus?.map((gpu) => <p key={gpu.name}><b>GPU:</b> {gpu.name} · {gpu.memoryBytes ? fmt(gpu.memoryBytes) : 'Dedicated VRAM unavailable'}{gpu.memorySource === 'nvidia-smi' && <small> (NVIDIA driver reported)</small>}</p>)} {data.acceleration.npu && <p><b>NPU / Neural Engine:</b> {data.acceleration.npu.name || 'Hardware Neural Processor'} · <small>{data.acceleration.npu.status === 'available' ? 'Active' : data.acceleration.npu.reason}</small></p>} </> : <p className="muted">{data.acceleration.reason}</p>}<h3>Provider Runtimes</h3>{data.providers.map((provider) => <div className="status" key={provider.id}><span className={provider.available ? 'online-dot' : 'offline-dot'} /> <b>{provider.label}</b><small>{provider.available ? provider.models.join(', ') || 'No models reported' : provider.reason}</small></div>)}<VoiceDiagnostics /></div>}</>; }
-function SettingsPanel({ roots, rootInput, setRootInput, setRoots }: { roots: Root[]; rootInput: string; setRootInput: (value: string) => void; setRoots: (value: Root[]) => void }) {
+function SettingsPanel({ providers, activeProvider, chooseProvider, availableModels, selectedModel, chooseModel, cloudApproved, setCloudApproved }: { providers: Provider[]; activeProvider: string; chooseProvider: (id: string) => void; availableModels: string[]; selectedModel: string; chooseModel: (model: string) => void; cloudApproved: boolean; setCloudApproved: (val: boolean) => void }) {
+  return (
+    <div className="space-y-6">
+      <div className="border-b border-slate-800 pb-4">
+        <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+          <Settings2 className="w-5 h-5 text-cyan-400" />
+          JARVIS Settings & Provider Configuration
+        </h2>
+        <p className="text-xs text-slate-400 mt-1">
+          Configure local AI execution providers, model selections, and cloud authorization rules.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 space-y-3">
+          <label className="block text-xs font-semibold uppercase tracking-wider text-cyan-400">
+            Active Provider Engine
+          </label>
+          <select
+            value={activeProvider}
+            onChange={(e) => chooseProvider(e.target.value)}
+            className="w-full bg-slate-950 text-slate-100 text-xs px-3 py-2 rounded-lg border border-slate-800 focus:outline-none focus:border-cyan-500"
+          >
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id} disabled={!provider.available && provider.id !== 'cloud'}>
+                {provider.label} {provider.available ? '(Online)' : provider.id === 'cloud' ? '(Not Configured)' : '(Unavailable)'}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-slate-400 italic">
+            Select Ollama or llama.cpp for local-first execution, or Cloud for remote APIs.
+          </p>
+        </div>
+
+        <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 space-y-3">
+          <label className="block text-xs font-semibold uppercase tracking-wider text-cyan-400">
+            Active Model Selection
+          </label>
+          <select
+            value={selectedModel}
+            onChange={(e) => void chooseModel(e.target.value)}
+            disabled={!availableModels.length}
+            className="w-full bg-slate-950 text-slate-100 text-xs px-3 py-2 rounded-lg border border-slate-800 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
+          >
+            {availableModels.length ? (
+              availableModels.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))
+            ) : (
+              <option value="">No model reported by active provider</option>
+            )}
+          </select>
+          <p className="text-[11px] text-slate-400 italic">
+            Models detected from your active local provider endpoint.
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 space-y-2">
+        <label className="text-xs font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+          <Cloud className="w-4 h-4 text-cyan-400" />
+          Cloud Request Approval Guardrail
+        </label>
+        <p className="text-xs text-slate-300">
+          When cloud provider execution is enabled, JARVIS requires explicit authorization before transmitting prompt data off-device.
+        </p>
+        <label className="flex items-center gap-2 pt-2 text-xs text-slate-200 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={cloudApproved}
+            onChange={(e) => setCloudApproved(e.target.checked)}
+            className="rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-0"
+          />
+          I approve sending cloud requests to my configured remote provider endpoint.
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function WorkspacesPanel({ roots, rootInput, setRootInput, setRoots }: { roots: Root[]; rootInput: string; setRootInput: (value: string) => void; setRoots: (value: Root[]) => void }) {
   const [edits, setEdits] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);

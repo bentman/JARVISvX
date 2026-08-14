@@ -100,7 +100,7 @@ function startCapture(includePreRoll: boolean) {
 }
 
 function cleanTranscript(text: string) {
-  const cleaned = String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise|wooshing(?: sound)?|wind|breathing)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis\b[\s,.:;-]*/i, '').trim();
+  const cleaned = String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise|wooshing(?: sound)?|water splashing|splashing|wind|breathing)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis\b[\s,.:;-]*/i, '').trim();
   return /^\s*[\[(]?[a-z\s-]+(?:sound|noise|music|breathing|wind)[\])]?\.?\s*$/i.test(cleaned) ? '' : cleaned;
 }
 
@@ -123,7 +123,7 @@ async function hasSpeech(samples: Float32Array) {
 
 async function initializeVad(baseUrl: string) {
   try {
-    postMessage({ type: 'loading', message: 'Loading optional Silero voice activity detector.' });
+    postMessage({ type: 'loading', message: 'Loading Silero voice activity detector.' });
     const bytes = await fetchAsset(`${baseUrl}/vad.silero-v6/model_quantized.onnx`, 'Silero VAD');
     vad = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] }) as unknown as Model;
     vadReady = true; resetVad();

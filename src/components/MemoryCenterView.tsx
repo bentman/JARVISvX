@@ -264,26 +264,26 @@ export function MemoryCenterView() {
       </div>
 
       {/* Memory Cards Grid */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {memories.map((m) => (
-          <div key={m.id} className="panel-card">
+          <div key={m.id} className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80 hover:border-slate-700/80 transition-all flex flex-col justify-between gap-3">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span style={{ backgroundColor: '#06111a', borderColor: '#213342' }} className="p-1.5 rounded-lg border">
+                  <span className="p-1 rounded-lg border border-slate-800 bg-slate-950">
                     {categoryIcons[m.category] || <Tag className="w-3.5 h-3.5 text-slate-400" />}
                   </span>
-                  <h4 className="text-sm font-mono font-bold text-slate-100">{m.key}</h4>
+                  <h4 className="text-xs font-bold text-slate-100">{m.key}</h4>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <span
                     className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded border ${
                       m.importance === 'high'
-                        ? 'bg-rose-950 text-rose-300 border-rose-800'
+                        ? 'bg-rose-950/80 text-rose-300 border-rose-800/60'
                         : m.importance === 'medium'
-                        ? 'bg-amber-950 text-amber-300 border-amber-800'
-                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                        ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
+                        : 'bg-slate-950/80 text-slate-400 border-slate-800/60'
                     }`}
                   >
                     {m.importance}
@@ -291,26 +291,24 @@ export function MemoryCenterView() {
                 </div>
               </div>
 
-              <p style={{ backgroundColor: '#06111a', borderColor: '#1f3442' }} className="text-xs text-slate-300 leading-relaxed font-mono p-3 rounded-xl border whitespace-pre-wrap">
+              <p className="text-xs text-slate-300 leading-relaxed font-mono p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 whitespace-pre-wrap">
                 {m.value}
               </p>
             </div>
 
-            <div className="flex items-center justify-between border-t border-slate-800/60 pt-3 text-[11px] font-mono text-slate-500">
+            <div className="flex items-center justify-between border-t border-slate-800/80 pt-2 text-[10px] font-mono text-slate-400">
               <span>Category: {m.category}</span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => handleOpenEditModal(m)}
-                  style={{ backgroundColor: '#06111a', color: '#53d4ff', border: '1px solid #213342' }}
-                  className="p-1.5 rounded-lg transition-colors"
+                  className="p-1 hover:text-cyan-400 text-slate-400 transition-colors"
                   title="Edit Memory"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => handleDeleteMemory(m.id)}
-                  style={{ backgroundColor: '#06111a', color: '#f43f5e', border: '1px solid #213342' }}
-                  className="p-1.5 rounded-lg transition-colors"
+                  className="p-1 hover:text-rose-400 text-slate-400 transition-colors"
                   title="Delete Memory"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -319,7 +317,6 @@ export function MemoryCenterView() {
             </div>
           </div>
         ))}
-
         {!memories.length && (
           <div className="col-span-full bg-slate-900/40 border border-slate-800 rounded-2xl p-12 text-center font-mono space-y-2">
             <Brain className="w-8 h-8 text-slate-600 mx-auto" />

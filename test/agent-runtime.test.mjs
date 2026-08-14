@@ -9,12 +9,24 @@ import { PolicyGate } from '../lib/agents/policy.mjs';
 import { ProcessAdapter } from '../lib/agents/adapters/process.mjs';
 import { AcpAdapter } from '../lib/agents/adapters/acp.mjs';
 import { AgentBusMcpServer } from '../lib/agents/agent-bus-mcp.mjs';
-import { createApiRouter } from '../lib/api.mjs';
 import { JarvisDatabase } from '../lib/database.mjs';
 
 function createTestApp() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-agent-runtime-'));
   const app = createJarvisApp({ database: new JarvisDatabase(path.join(directory, 'jarvis.sqlite')) });
+  app.voice.bootstrap = {
+    async install(id) {
+      return { id, ready: true };
+    },
+    async status() {
+      return [
+        { id: 'wake.hey-jarvis', ready: true },
+        { id: 'stt.whisper-base-en', ready: true },
+        { id: 'tts.kokoro-v1', ready: true },
+        { id: 'vad.silero-v6', ready: true }
+      ];
+    }
+  };
   return {
     app,
     cleanup() {
@@ -108,7 +120,8 @@ test('Adapters probe status and generate tokens', async () => {
   const processAdapter = new ProcessAdapter({
     getProvider: () => ({
       async *streamChat() {
-        yield { type: 'token', value: 'Hello from ProcessAdapter' };
+        yield 'Hello from ProcessAdapter';
+        yield { type: 'token', value: ' with object token compatibility' };
       }
     })
   });
@@ -124,7 +137,7 @@ test('Adapters probe status and generate tokens', async () => {
     if (event.type === 'token') tokens.push(event.value);
   }
 
-  assert.ok(tokens.includes('Hello from ProcessAdapter'));
+  assert.deepEqual(tokens, ['Hello from ProcessAdapter', ' with object token compatibility']);
 });
 
 test('AcpAdapter reports missing CLI as a failed event', async () => {

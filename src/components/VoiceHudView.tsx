@@ -150,66 +150,63 @@ export function VoiceHudView() {
   ];
 
   return (
-    <div className="p-4 sm:p-8 bg-[#0a0a0b] text-slate-100 max-w-5xl mx-auto space-y-6 font-sans min-h-[calc(100vh-80px)]">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
         <div className="flex items-center gap-3">
           <Radio className="w-5 h-5 text-cyan-400" />
           <div>
-            <h2 className="text-xl font-mono text-slate-100 font-medium">Voice Control Center</h2>
-            <p className="text-xs font-mono text-slate-400">JARVIS Speech Intelligence Runtime</p>
+            <h2 className="text-xl font-bold text-slate-100">Voice Control Center</h2>
+            <p className="text-xs text-slate-400">JARVIS Speech Intelligence Runtime</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-cyan-300">
+        <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-800/80 px-3 py-1.5 rounded-xl text-xs font-mono text-cyan-300">
           <Activity className="w-3.5 h-3.5 text-emerald-400" />
           <span className="uppercase">{currentState}</span>
         </div>
       </div>
 
       {error && (
-        <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-200 text-xs font-mono flex items-center justify-between">
+        <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs font-mono flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="p-1 hover:text-white">✕</button>
         </div>
       )}
 
-      {/* Hero Presence Card - Clean & Organized */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-center space-y-5 shadow-xl relative overflow-hidden backdrop-blur-md">
-        {/* Soft Minimal Glowing Orb */}
+      {/* Hero Presence Card */}
+      <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 flex flex-col items-center justify-center space-y-4 shadow-xl relative overflow-hidden backdrop-blur-md">
         <VoiceOrb
           state={currentState}
           audioLevel={audioLevel}
           onOrbClick={handlePushToTalk}
-          size={140}
+          size={130}
         />
 
-        {/* Status Descriptor */}
         <div className="text-center space-y-1">
-          <p className="text-sm font-mono text-slate-200">
+          <p className="text-xs font-mono text-slate-200">
             {voiceStatus?.message || 'Listening locally for "Hey Jarvis"...'}
           </p>
         </div>
 
-        {/* HUD Actions Bar */}
-        <div className="flex items-center justify-center gap-3 pt-2">
+        <div className="flex items-center justify-center gap-3 pt-1">
           <button
             onClick={handlePushToTalk}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-bold transition-all shadow-md shadow-cyan-500/20"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-md shadow-cyan-500/20"
           >
             <Mic className="w-3.5 h-3.5" /> Push-To-Talk
           </button>
 
           <button
             onClick={handleInterrupt}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-900 text-slate-200 hover:text-rose-200 border border-slate-700 font-mono text-xs transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/80 hover:bg-rose-900 text-slate-200 hover:text-rose-200 border border-slate-700/80 text-xs transition-all"
           >
             <Square className="w-3.5 h-3.5 text-rose-400" /> Interrupt Speech
           </button>
 
           <button
             onClick={() => handleModeChange(activeMode === 'wake' ? 'ptt' : 'wake')}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-400 border border-slate-800 font-mono text-xs transition-colors"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-400 border border-slate-800/80 font-mono text-xs transition-colors"
           >
             <Radio className="w-3.5 h-3.5 text-cyan-400" /> Mode: {activeMode.toUpperCase()}
           </button>
@@ -217,10 +214,10 @@ export function VoiceHudView() {
       </div>
 
       {/* 2-Column Grid: Settings & Speech Transcript */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Column 1: Voice Persona Selector */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl">
-          <h3 className="text-sm font-mono text-slate-200 flex items-center gap-2 font-bold">
+        <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
             <Volume2 className="w-4 h-4 text-cyan-400" /> TTS Voice Persona
           </h3>
 
@@ -237,11 +234,11 @@ export function VoiceHudView() {
                       : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <span className="font-medium text-slate-200">{v.name}</span>
+                  <span className="font-medium text-slate-200 text-xs">{v.name}</span>
                   {isSelected ? (
                     <CheckCircle2 className="w-4 h-4 text-cyan-400" />
                   ) : (
-                    <span className="text-[10px] text-slate-500">{v.tag}</span>
+                    <span className="text-[10px] text-slate-400">{v.tag}</span>
                   )}
                 </div>
               );
@@ -250,13 +247,13 @@ export function VoiceHudView() {
         </div>
 
         {/* Column 2: Speech Transcript & Quick Actions */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl flex flex-col justify-between">
+        <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-3 flex flex-col justify-between">
           <div className="space-y-3">
-            <h3 className="text-sm font-mono text-slate-200 flex items-center gap-2 font-bold">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-purple-400 flex items-center gap-2">
               <Terminal className="w-4 h-4 text-purple-400" /> Speech Log & Quick Prompts
             </h3>
 
-            <div className="flex flex-wrap gap-1.5 font-mono text-xs">
+            <div className="flex flex-wrap gap-1.5 text-xs font-mono">
               {[
                 { cmd: '/calc 1024 * 16', label: '/calc' },
                 { cmd: '/hardware', label: '/hardware' },
@@ -266,7 +263,7 @@ export function VoiceHudView() {
                 <button
                   key={idx}
                   onClick={() => handleExecuteQuickSkill(item.cmd)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-purple-500 text-purple-300 transition-colors"
+                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800/80 hover:border-purple-500 text-purple-300 transition-colors text-xs"
                 >
                   {item.label}
                 </button>
@@ -274,7 +271,7 @@ export function VoiceHudView() {
             </div>
           </div>
 
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-xs min-h-[70px] text-cyan-300 whitespace-pre-wrap">
+          <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 font-mono text-xs min-h-[70px] text-cyan-300 whitespace-pre-wrap">
             {lastTranscript || 'Listening for speech input...'}
           </div>
         </div>

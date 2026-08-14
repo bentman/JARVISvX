@@ -180,82 +180,31 @@ export function ModelOrchestrationView() {
         </div>
       )}
 
-      {/* Grid Section 1: Real Detected Hardware Specs */}
-      <div className="grid grid-cols-4 font-mono">
-        <div className="stat-box">
-          <div className="title">
-            <span>CPU CORES</span>
-            <Cpu className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="value">
-            {activeHardware.cpuCores} Threads
-          </div>
-          <div className="sub truncate">{activeHardware.os}</div>
-        </div>
 
-        <div className="stat-box">
-          <div className="title">
-            <span>SYSTEM MEMORY</span>
-            <HardDrive className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="value">
-            {activeHardware.ramGB} GB RAM
-          </div>
-          <div className="sub">
-            Free: {activeHardware.freeRamGB} GB
-          </div>
-        </div>
-
-        <div className="stat-box">
-          <div className="title">
-            <span>GPU ACCELERATION</span>
-            <Activity className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="value">
-            {activeHardware.gpuName.includes('NVIDIA') ? 'NVIDIA GPU' : activeHardware.gpuName.includes('Apple') ? 'Metal GPU' : 'Vulkan / System'}
-          </div>
-          <div className="sub truncate">
-            {activeHardware.gpuName}
-          </div>
-        </div>
-
-        <div className="stat-box">
-          <div className="title">
-            <span>RECOMMENDED MODEL</span>
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="value" style={{ color: '#53d4ff' }}>
-            {activeHardware.recommendedLocalModel}
-          </div>
-          <div className="sub">
-            Optimal fit for {activeHardware.ramGB} GB RAM
-          </div>
-        </div>
-      </div>
 
       {/* Orchestration Mode Selection Cards */}
       <div className="space-y-4">
         <h3 className="text-lg font-mono text-slate-200 flex items-center gap-2">
           <Sliders className="w-4 h-4 text-cyan-400" /> Select Execution Policy Mode
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           {/* AUTO Card */}
           <div
             onClick={() => handleUpdateConfig({ ...modelConfig, mode: 'auto' })}
-            className={`cursor-pointer p-6 rounded-2xl border transition-all ${
+            className={`cursor-pointer p-4 rounded-xl border transition-all ${
               modelConfig.mode === 'auto'
                 ? 'bg-slate-900/90 border-emerald-500/80 shadow-xl shadow-emerald-500/10'
-                : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
+                : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700/80'
             }`}
           >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950 px-2.5 py-1 rounded border border-emerald-800">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/60">
                 RECOMMENDED
               </span>
-              {modelConfig.mode === 'auto' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+              {modelConfig.mode === 'auto' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
             </div>
-            <h4 className="text-lg font-mono font-bold text-slate-100">Auto-Orchestration</h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+            <h4 className="text-sm font-bold text-slate-100">Auto-Orchestration</h4>
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
               Runs standard tasks locally via Ollama / llama.cpp. Automatically escalates complex coding or web search prompts to Gemini Cloud reasoning when configured.
             </p>
           </div>
@@ -263,20 +212,20 @@ export function ModelOrchestrationView() {
           {/* LOCAL ONLY Card */}
           <div
             onClick={() => handleUpdateConfig({ ...modelConfig, mode: 'local_only' })}
-            className={`cursor-pointer p-6 rounded-2xl border transition-all ${
+            className={`cursor-pointer p-4 rounded-xl border transition-all ${
               modelConfig.mode === 'local_only'
                 ? 'bg-slate-900/90 border-cyan-500/80 shadow-xl shadow-cyan-500/10'
-                : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
+                : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700/80'
             }`}
           >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950 px-2.5 py-1 rounded border border-cyan-800">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-mono font-bold text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/60">
                 MAX PRIVACY
               </span>
-              {modelConfig.mode === 'local_only' && <CheckCircle2 className="w-5 h-5 text-cyan-400" />}
+              {modelConfig.mode === 'local_only' && <CheckCircle2 className="w-4 h-4 text-cyan-400" />}
             </div>
-            <h4 className="text-lg font-mono font-bold text-slate-100">100% Local Only</h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+            <h4 className="text-sm font-bold text-slate-100">100% Local Only</h4>
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
               Strictly keeps all data on your local hardware. No cloud network calls are permitted under any circumstance.
             </p>
           </div>
@@ -284,20 +233,20 @@ export function ModelOrchestrationView() {
           {/* CLOUD ONLY Card */}
           <div
             onClick={() => handleUpdateConfig({ ...modelConfig, mode: 'cloud_only' })}
-            className={`cursor-pointer p-6 rounded-2xl border transition-all ${
+            className={`cursor-pointer p-4 rounded-xl border transition-all ${
               modelConfig.mode === 'cloud_only'
                 ? 'bg-slate-900/90 border-purple-500/80 shadow-xl shadow-purple-500/10'
-                : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
+                : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700/80'
             }`}
           >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-mono font-bold text-purple-400 bg-purple-950 px-2.5 py-1 rounded border border-purple-800">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-mono font-bold text-purple-400 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/60">
                 MAX POWER
               </span>
-              {modelConfig.mode === 'cloud_only' && <CheckCircle2 className="w-5 h-5 text-purple-400" />}
+              {modelConfig.mode === 'cloud_only' && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
             </div>
-            <h4 className="text-lg font-mono font-bold text-slate-100">Cloud Gemini Only</h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+            <h4 className="text-sm font-bold text-slate-100">Cloud Gemini Only</h4>
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
               Directly routes all queries to Gemini Cloud API for maximum intelligence, speed, and search grounding (requires cloud approval).
             </p>
           </div>

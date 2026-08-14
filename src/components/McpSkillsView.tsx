@@ -291,12 +291,12 @@ export function McpSkillsView() {
           </button>
         </div>
 
-        <div className="grid grid-cols-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           {servers.map((srv) => (
-            <div key={srv.id} className="panel-card">
+            <div key={srv.id} className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80 hover:border-slate-700/80 transition-all flex flex-col justify-between gap-3">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-slate-100 truncate max-w-[170px]">
+                  <span className="text-xs font-bold text-slate-100 truncate max-w-[170px]">
                     {srv.name}
                   </span>
                   <div className="flex items-center gap-1">
@@ -323,13 +323,13 @@ export function McpSkillsView() {
                   <span
                     className={`flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded border ${
                       srv.status === 'connected'
-                        ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
-                        : 'bg-rose-950 text-rose-400 border-rose-800'
+                        ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60'
+                        : 'bg-rose-950/80 text-rose-400 border-rose-800/60'
                     }`}
                   >
                     <CheckCircle2 className="w-3 h-3" /> {srv.status.toUpperCase()} ({srv.latencyMs}ms)
                   </span>
-                  <span className="text-[10px] font-mono bg-slate-950 text-slate-400 px-2 py-0.5 rounded border border-slate-800 uppercase">
+                  <span className="text-[10px] font-mono bg-slate-950 text-slate-400 px-2 py-0.5 rounded border border-slate-800/80 uppercase">
                     {srv.type}
                   </span>
                 </div>
@@ -338,14 +338,14 @@ export function McpSkillsView() {
               </div>
 
               {/* Exposed Tools */}
-              <div className="space-y-1.5 pt-3 border-t border-slate-800/80">
+              <div className="space-y-1.5 pt-2.5 border-t border-slate-800/80">
                 <span className="text-[11px] font-mono text-slate-400 block">Exposed Tools ({srv.tools.length}):</span>
                 <div className="flex flex-wrap gap-1">
                   {srv.tools.map((t, idx) => (
                     <button
                       key={idx}
                       onClick={() => setToolTester({ server: srv, tool: t })}
-                      className="text-[10px] font-mono bg-slate-950 hover:bg-cyan-950 hover:text-cyan-300 text-cyan-400 px-2 py-1 rounded border border-slate-800 hover:border-cyan-700 transition-all flex items-center gap-1"
+                      className="text-[10px] font-mono bg-slate-950 hover:bg-cyan-950 hover:text-cyan-300 text-cyan-400 px-2 py-1 rounded border border-slate-800/80 hover:border-cyan-700 transition-all flex items-center gap-1"
                       title="Click to test executing this tool"
                     >
                       <Play className="w-2.5 h-2.5" />
