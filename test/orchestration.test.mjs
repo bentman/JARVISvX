@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -63,6 +64,30 @@ test('evaluateTurnRouting evaluates execution policies correctly', () => {
   const localOnlyRes = evaluateTurnRouting('write a typescript function', { ...config, mode: 'local_only' }, true, true);
   assert.equal(localOnlyRes.shouldCloudEscalate, false);
   assert.equal(localOnlyRes.targetProvider, 'local');
+});
+
+test('pingLocalEndpoint detects OpenAI-compatible and Ollama model endpoints', async (t) => {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      return res.end(JSON.stringify({ data: [{ id: 'openai-compatible-model' }] }));
+    }
+    if (req.url === '/api/tags') {
+      return res.end(JSON.stringify({ models: [{ name: 'ollama-model' }] }));
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+
+  const { port } = server.address();
+  const openAi = await pingLocalEndpoint(`http://127.0.0.1:${port}/v1`);
+  assert.deepEqual(openAi.models, ['openai-compatible-model']);
+
+  const ollama = await pingLocalEndpoint(`http://127.0.0.1:${port}`);
+  assert.deepEqual(ollama.models, ['openai-compatible-model']);
+
+  const ollamaTags = await pingLocalEndpoint(`http://127.0.0.1:${port}/api/tags`);
+  assert.deepEqual(ollamaTags.models, ['ollama-model']);
 });
 
 test('app initialization exposes orchestration methods', async () => {

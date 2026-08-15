@@ -1,0 +1,97 @@
+/* ==========================================================================
+   JARVISvX Design Tokens
+   Centralized design system for flyout panels and surface elements.
+   ========================================================================== */
+
+:root {
+  /* ---- Color Palette (Dark Theme) ---- */
+  /* Surfaces */
+  --surface-deep: #06111a;
+  --surface-card: #0a1825;
+  --surface-panel: #07111c;
+  --surface-elevated: #0c1b29;
+  --surface-input: #06111a;
+  --surface-popover: #0c1b29;
+
+  /* Borders */
+  --border-primary: #1f3442;
+  --border-secondary: #213342;
+  --border-tertiary: #2e5064;
+  --border-focus: #53d4ff;
+
+  /* Text */
+  --text-primary: #edf6ff;
+  --text-secondary: #9db2c3;
+  --text-tertiary: #64748b;
+  --text-muted: #5a7387;
+  --text-danger: #f43f5e;
+  --text-success: #59ddab;
+  --text-warning: #d97706;
+  --text-accent: #53d4ff;
+
+  /* Accents / Status */
+  --cyan-400: #53d4ff;
+  --cyan-500: #0ea5e9;
+  --emerald-400: #59ddab;
+  --emerald-500: #10b981;
+  --rose-400: #f43f5e;
+  --rose-500: #ef4444;
+  --amber-400: #f59e0b;
+  --amber-500: #d97706;
+  --purple-400: #a855f7;
+  --purple-500: #a855f7;
+  --orange-400: #fb923c;
+
+  /* ---- Spacing Scale (base 4px) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+
+  /* ---- Border Radius ---- */
+  --radius-sm: 6px;
+  --radius-default: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+  --radius-full: 9999px;
+
+  /* ---- Shadows ---- */
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --shadow-card-hover: 0 8px 25px rgba(0, 0, 0, 0.12);
+  --shadow-elevated: 0 10px 40px rgba(0, 0, 0, 0.3);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  /* ---- Typography Scale ---- */
+  --font-size-caption: 12px;
+  --font-size-small: 13px;
+  --font-size-body: 14px;
+  --font-size-normal: 14px;
+  --font-size-label: 14px;
+  --font-size-h4: 15px;
+  --font-size-h3: 17px;
+  --font-size-h2: 20px;
+  --font-size-h1: 24px;
+
+  --line-height-tight: 1.3;
+  --line-height-normal: 1.45;
+  --line-height-relaxed: 1.55;
+  --line-height-loose: 1.7;
+
+  /* ---- Transitions ---- */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  /* ---- Font families ---- */
+  --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-family-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}

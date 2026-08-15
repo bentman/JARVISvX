@@ -10,8 +10,12 @@ import {
   Terminal,
   Activity,
   CheckCircle2,
-  Sparkles
+  X
 } from 'lucide-react';
+import { PanelCard } from './ui/PanelCard';
+import { PanelHeader } from './ui/PanelHeader';
+import { SectionDivider } from './ui/SectionDivider';
+import { StatusBadge } from './ui/StatusBadge';
 
 export function VoiceHudView() {
   const [voiceStatus, setVoiceStatus] = useState<VoiceRuntimeStatus | null>(null);
@@ -150,133 +154,144 @@ export function VoiceHudView() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="panel-surface panel-content">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-        <div className="flex items-center gap-3">
-          <Radio className="w-5 h-5 text-cyan-400" />
-          <div>
-            <h2 className="text-xl font-bold text-slate-100">Voice Control Center</h2>
-            <p className="text-xs text-slate-400">JARVIS Speech Intelligence Runtime</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-800/80 px-3 py-1.5 rounded-xl text-xs font-mono text-cyan-300">
-          <Activity className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="uppercase">{currentState}</span>
-        </div>
-      </div>
+      <PanelHeader
+        icon={<Radio className="w-5 h-5 text-cyan-400" />}
+        title="Voice Control Center"
+        subtitle="JARVIS Speech Intelligence Runtime"
+        actions={
+          <StatusBadge status="info">
+            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="badge-icon font-mono uppercase">{currentState}</span>
+          </StatusBadge>
+        }
+      />
 
       {error && (
-        <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs font-mono flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="p-1 hover:text-white">✕</button>
-        </div>
+        <PanelCard padding="compact" className="text-danger bg-danger-subtle border border-rose">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-mono">{error}</span>
+            <button onClick={() => setError(null)} className="btn-icon btn-sm btn-rose">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        </PanelCard>
       )}
 
       {/* Hero Presence Card */}
-      <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 flex flex-col items-center justify-center space-y-4 shadow-xl relative overflow-hidden backdrop-blur-md">
-        <VoiceOrb
-          state={currentState}
-          audioLevel={audioLevel}
-          onOrbClick={handlePushToTalk}
-          size={130}
-        />
+      <PanelCard hover={false} className="voice-presence-card">
+        <div className="voice-presence-layout">
+          <VoiceOrb
+            state={currentState}
+            audioLevel={audioLevel}
+            onOrbClick={handlePushToTalk}
+            size={64}
+          />
 
-        <div className="text-center space-y-1">
-          <p className="text-xs font-mono text-slate-200">
-            {voiceStatus?.message || 'Listening locally for "Hey Jarvis"...'}
-          </p>
+          <div className="voice-presence-copy">
+            <p className="text-small text-secondary font-mono">
+              {voiceStatus?.message || 'Listening locally for "Hey Jarvis"...'}
+            </p>
+          </div>
+
+          <div className="voice-presence-actions">
+            <button
+              onClick={handlePushToTalk}
+              className="btn btn-primary btn-sm"
+            >
+              <Mic className="w-3.5 h-3.5" /> Push-To-Talk
+            </button>
+
+            <button
+              onClick={handleInterrupt}
+              className="btn btn-sm btn-rose"
+            >
+              <Square className="w-3.5 h-3.5" /> Interrupt Speech
+            </button>
+
+            <button
+              onClick={() => handleModeChange(activeMode === 'wake' ? 'ptt' : 'wake')}
+              className="btn btn-sm btn-secondary"
+            >
+              <Radio className="w-3.5 h-3.5 text-cyan-400" /> Mode: {activeMode.toUpperCase()}
+            </button>
+          </div>
         </div>
-
-        <div className="flex items-center justify-center gap-3 pt-1">
-          <button
-            onClick={handlePushToTalk}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-md shadow-cyan-500/20"
-          >
-            <Mic className="w-3.5 h-3.5" /> Push-To-Talk
-          </button>
-
-          <button
-            onClick={handleInterrupt}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/80 hover:bg-rose-900 text-slate-200 hover:text-rose-200 border border-slate-700/80 text-xs transition-all"
-          >
-            <Square className="w-3.5 h-3.5 text-rose-400" /> Interrupt Speech
-          </button>
-
-          <button
-            onClick={() => handleModeChange(activeMode === 'wake' ? 'ptt' : 'wake')}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-400 border border-slate-800/80 font-mono text-xs transition-colors"
-          >
-            <Radio className="w-3.5 h-3.5 text-cyan-400" /> Mode: {activeMode.toUpperCase()}
-          </button>
-        </div>
-      </div>
+      </PanelCard>
 
       {/* 2-Column Grid: Settings & Speech Transcript */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="panel-grid two voice-hud-grid">
         {/* Column 1: Voice Persona Selector */}
-        <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
-            <Volume2 className="w-4 h-4 text-cyan-400" /> TTS Voice Persona
-          </h3>
+        <PanelCard className="voice-persona-card">
+          <SectionDivider
+            title="TTS Voice Persona"
+            icon={<Volume2 className="w-4 h-4 text-cyan-400" />}
+          />
 
-          <div className="grid grid-cols-1 gap-2 font-mono text-xs max-h-56 overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 gap-2 font-mono text-xs voice-list">
             {kokoroVoicesList.map((v) => {
               const isSelected = activeVoice === v.id;
               return (
                 <div
                   key={v.id}
                   onClick={() => handleVoiceChange(v.id)}
-                  className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                  className={`voice-list-row rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
                     isSelected
-                      ? 'bg-slate-950 border-cyan-500 text-cyan-300'
-                      : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:text-slate-200'
+                      ? 'border-cyan-500 text-cyan-300'
+                      : 'border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
+                  style={
+                    isSelected
+                      ? { backgroundColor: '#0a1825' }
+                      : { backgroundColor: '#06111a' }
+                  }
                 >
-                  <span className="font-medium text-slate-200 text-xs">{v.name}</span>
+                  <span className={`font-medium text-xs ${isSelected ? 'text-cyan-300' : 'text-slate-200'}`}>{v.name}</span>
                   {isSelected ? (
                     <CheckCircle2 className="w-4 h-4 text-cyan-400" />
                   ) : (
-                    <span className="text-[10px] text-slate-400">{v.tag}</span>
+                    <span className="text-xs text-slate-400">{v.tag}</span>
                   )}
                 </div>
               );
             })}
           </div>
-        </div>
+        </PanelCard>
 
         {/* Column 2: Speech Transcript & Quick Actions */}
-        <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-3 flex flex-col justify-between">
-          <div className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-purple-400 flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-purple-400" /> Speech Log & Quick Prompts
-            </h3>
+        <PanelCard>
+          <SectionDivider
+            title="Speech Log & Quick Prompts"
+            icon={<Terminal className="w-4 h-4 text-purple-400" />}
+          />
 
-            <div className="flex flex-wrap gap-1.5 text-xs font-mono">
-              {[
-                { cmd: '/calc 1024 * 16', label: '/calc' },
-                { cmd: '/hardware', label: '/hardware' },
-                { cmd: '/search AI breakthroughs', label: '/search' },
-                { cmd: '/mcp', label: '/mcp' }
-              ].map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleExecuteQuickSkill(item.cmd)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800/80 hover:border-purple-500 text-purple-300 transition-colors text-xs"
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+          <div className="flex flex-wrap gap-2 text-xs font-mono">
+            {[
+              { cmd: '/calc 1024 * 16', label: '/calc' },
+              { cmd: '/hardware', label: '/hardware' },
+              { cmd: '/search AI breakthroughs', label: '/search' },
+              { cmd: '/mcp', label: '/mcp' }
+            ].map((item, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleExecuteQuickSkill(item.cmd)}
+                className="btn btn-sm btn-purple"
+              >
+                <Terminal className="w-3 h-3 text-purple-400" />
+                {item.label}
+              </button>
+            ))}
           </div>
 
-          <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 font-mono text-xs min-h-[70px] text-cyan-300 whitespace-pre-wrap">
+          <div
+            className="bg-deep border border-slate-800 rounded-xl p-3 font-mono text-xs text-cyan-300 whitespace-pre-wrap"
+            style={{ minHeight: '70px' }}
+          >
             {lastTranscript || 'Listening for speech input...'}
           </div>
-        </div>
+        </PanelCard>
       </div>
     </div>
   );
 }
-

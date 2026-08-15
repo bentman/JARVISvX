@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { AgentProfile, AgentRun } from '../types';
-import { Users, Bot, Play, Cpu, Shield, Code, Search, RefreshCw, MessageSquare } from 'lucide-react';
+import { Users, Bot, Play, Cpu, Shield, Code, Search, RefreshCw, MessageSquare, CheckCircle2, AlertCircle, Clock, Pause, X } from 'lucide-react';
+import { PanelCard } from './ui/PanelCard';
+import { PanelHeader } from './ui/PanelHeader';
+import { SectionDivider } from './ui/SectionDivider';
+import { StatusBadge } from './ui/StatusBadge';
 
 const FALLBACK_PROFILES: AgentProfile[] = [
   {
@@ -92,10 +96,20 @@ export function AgentOrchestrationView() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'profiles' | 'runs'>('profiles');
   const [approved, setApproved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const selectedProfile = agents.find((agent) => agent.id === selectedAgent);
   const selectedCapabilities = selectedMode === 'solo' ? selectedProfile?.capabilities ?? [] : [];
   const needsApproval = selectedCapabilities.some((capability) => capability === 'workspace.write' || capability === 'shell');
+
+  const runBadgeStatus = (status: string) => {
+    switch (status) {
+      case 'completed': return 'success' as const;
+      case 'running': return 'info' as const;
+      case 'failed': return 'danger' as const;
+      default: return 'pending' as const;
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -135,165 +149,205 @@ export function AgentOrchestrationView() {
       setApproved(false);
       await loadData();
       setActiveTab('runs');
-    } catch {}
+    } catch (err: any) {
+      setError(err.message || 'Failed to execute agent run');
+    }
     setLoading(false);
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center border-b border-slate-800 pb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-            <Users className="w-6 h-6 text-cyan-400" />
-            JARVISvX Agent Runtime
-          </h2>
-          <p className="text-sm text-slate-400">
-            Declarative project roles, ACP/Process runtime adapters, and multi-agent collaboration.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold ${activeTab === 'profiles' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}
-            onClick={() => setActiveTab('profiles')}
-          >
-            Agent Profiles ({agents.length})
-          </button>
-          <button
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold ${activeTab === 'runs' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}
-            onClick={() => setActiveTab('runs')}
-          >
-            Run History ({runs.length})
-          </button>
-        </div>
-      </div>
+    <div className="panel-surface panel-content">
+      {/* Header */}
+      <PanelHeader
+        icon={<Users className="w-5 h-5 text-cyan-400" />}
+        title="JARVISvX Agent Runtime"
+        subtitle="Declarative project roles, ACP/Process runtime adapters, and multi-agent collaboration."
+        actions={
+          <div className="flex gap-2">
+            <button
+              className={`btn btn-sm ${activeTab === 'profiles' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('profiles')}
+            >
+              Agent Profiles ({agents.length})
+            </button>
+            <button
+              className={`btn btn-sm ${activeTab === 'runs' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('runs')}
+            >
+              Run History ({runs.length})
+            </button>
+          </div>
+        }
+      />
+
+      {error && (
+        <PanelCard padding="compact" className="text-danger bg-danger-subtle border border-rose">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-mono">{error}</span>
+            <button onClick={() => setError(null)} className="btn-icon btn-sm btn-rose">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </PanelCard>
+      )}
 
       {/* Trigger Multi-Agent Collaboration Run */}
-      <form onSubmit={handleRun} className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-3">
-        <div className="flex gap-3 items-center">
-          <label className="text-xs text-slate-400 font-semibold">Mode:</label>
-          <select
-            value={selectedMode}
-            onChange={(e: any) => setSelectedMode(e.target.value)}
-            className="bg-slate-950 text-slate-200 text-xs px-2.5 py-1.5 rounded-md border border-slate-800"
-          >
-            <option value="solo">solo (Single Agent)</option>
-            <option value="panel">panel (Multi-Agent Synthesis)</option>
-            <option value="debate">debate (2-Round Bounded Debate)</option>
-          </select>
+      <PanelCard padding="compact">
+        <SectionDivider
+          title="Execute Multi-Agent Run"
+          icon={<Play className="w-4 h-4 text-cyan-400" />}
+        />
 
-          {selectedMode === 'solo' && (
-            <>
-              <label className="text-xs text-slate-400 font-semibold">Agent:</label>
-              <select
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-                className="bg-slate-950 text-slate-200 text-xs px-2.5 py-1.5 rounded-md border border-slate-800"
-              >
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name} (@{a.id})</option>
-                ))}
-              </select>
-            </>
+        <form onSubmit={handleRun} className="panel-content gap-3">
+          <div className="flex gap-3 items-center flex-wrap">
+            <label className="form-label mb-0">Mode:</label>
+            <select
+              value={selectedMode}
+              onChange={(e: any) => setSelectedMode(e.target.value)}
+              className="form-input text-xs py-2"
+              style={{ maxWidth: '240px' }}
+            >
+              <option value="solo">solo (Single Agent)</option>
+              <option value="panel">panel (Multi-Agent Synthesis)</option>
+              <option value="debate">debate (2-Round Bounded Debate)</option>
+            </select>
+
+            {selectedMode === 'solo' && (
+              <>
+                <label className="form-label mb-0">Agent:</label>
+                <select
+                  value={selectedAgent}
+                  onChange={(e) => setSelectedAgent(e.target.value)}
+                  className="form-input text-xs py-2"
+                  style={{ maxWidth: '240px' }}
+                >
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name} (@{a.id})</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+
+          {needsApproval && (
+            <label className="flex items-center gap-2 text-xs text-amber-300">
+              <input
+                type="checkbox"
+                checked={approved}
+                onChange={(e) => setApproved(e.target.checked)}
+                className="accent-cyan-500"
+              />
+              Approve privileged agent capabilities for this run.
+            </label>
           )}
-        </div>
 
-        {needsApproval && (
-          <label className="flex items-center gap-2 text-xs text-amber-300">
+          <div className="flex gap-2">
             <input
-              type="checkbox"
-              checked={approved}
-              onChange={(e) => setApproved(e.target.checked)}
+              type="text"
+              value={objective}
+              onChange={(e) => setObjective(e.target.value)}
+              placeholder="Specify multi-agent task objective or debate question..."
+              className="form-input flex-1 text-sm"
             />
-            Approve privileged agent capabilities for this run.
-          </label>
-        )}
-
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={objective}
-            onChange={(e) => setObjective(e.target.value)}
-            placeholder="Specify multi-agent task objective or debate question..."
-            className="flex-1 bg-slate-950 text-slate-100 text-sm px-3 py-2 rounded-lg border border-slate-800"
-          />
-          <button
-            type="submit"
-            disabled={loading || !objective.trim() || (needsApproval && !approved)}
-            className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-50"
-          >
-            <Play className="w-4 h-4" />
-            {loading ? 'Running...' : 'Execute Run'}
-          </button>
-        </div>
-      </form>
+            <button
+              type="submit"
+              disabled={loading || !objective.trim() || (needsApproval && !approved)}
+              className="btn btn-primary"
+            >
+              <Play className="w-4 h-4" />
+              {loading ? 'Running...' : 'Execute Run'}
+            </button>
+          </div>
+        </form>
+      </PanelCard>
 
       {/* Profiles Tab */}
       {activeTab === 'profiles' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {agents.map((agent) => (
-            <div key={agent.id} className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80 hover:border-slate-700/80 transition-all space-y-2.5">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-cyan-400" />
-                    {agent.name} <span className="text-[11px] font-mono text-cyan-400 font-normal">@{agent.id}</span>
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">{agent.description}</p>
-                </div>
-                <div className="flex gap-1.5 shrink-0">
-                  {agent.cli && (
-                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/60">
-                      cli: {agent.cli}
-                    </span>
-                  )}
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60">
-                    {agent.adapter}
-                  </span>
-                </div>
-              </div>
+        <PanelCard gap="none">
+          <SectionDivider
+            title="Agent Profiles"
+            subtitle={`(${agents.length})`}
+            icon={<Bot className="w-4 h-4 text-cyan-400" />}
+          />
 
-              <div className="text-xs space-y-1.5 pt-2 border-t border-slate-800/80">
-                <div className="flex justify-between text-slate-400">
-                  <span className="text-[11px] font-medium text-slate-400">Voice Persona:</span>
-                  <span className="font-mono text-cyan-300 text-[11px]">{agent.voice}</span>
+          <div className="panel-grid two">
+            {agents.map((agent) => (
+              <div key={agent.id} className="panel-card p-4 space-y-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      <Bot className="w-4 h-4 text-cyan-400" />
+                      {agent.name} <span className="text-xs text-cyan-400 font-normal">@{agent.id}</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">{agent.description}</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    {agent.cli && (
+                      <span className="text-xs uppercase font-mono px-3 py-1 rounded bg-info-subtle text-cyan-300 border border-cyan">
+                        cli: {agent.cli}
+                      </span>
+                    )}
+                    <span className="text-xs uppercase font-mono px-3 py-1 rounded bg-elevated text-slate-300 border border-slate-800">
+                      {agent.adapter}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span className="text-[11px] font-medium text-slate-400">Capabilities:</span>
-                  <span className="font-mono text-slate-300 text-[11px]">{agent.capabilities.join(', ')}</span>
+
+                <div className="text-xs space-y-2 pt-3 border-t border-slate-800">
+                  <div className="flex justify-between text-slate-400">
+                    <span className="text-xs font-medium text-slate-400">Voice Persona:</span>
+                    <span className="font-mono text-cyan-300 text-xs">{agent.voice}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span className="text-xs font-medium text-slate-400">Capabilities:</span>
+                    <span className="font-mono text-slate-300 text-xs">{agent.capabilities.join(', ')}</span>
+                  </div>
+                  <p className="text-slate-400 italic text-xs pt-1">
+                    "{agent.instructions}"
+                  </p>
                 </div>
-                <p className="text-slate-400 italic text-[11px] pt-1">
-                  "{agent.instructions}"
-                </p>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </PanelCard>
       )}
 
       {/* Runs Tab */}
       {activeTab === 'runs' && (
-        <div className="space-y-3">
-          {runs.map((run) => (
-            <div key={run.id} className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[11px] font-mono text-cyan-400 font-bold">
-                  {run.mode.toUpperCase()} RUN · {run.agent_id}
-                </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded font-semibold font-mono ${run.status === 'completed' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60' : 'bg-amber-950/80 text-amber-300 border border-amber-800/60'}`}>
-                  {run.status}
-                </span>
-              </div>
+        <PanelCard gap="none">
+          <SectionDivider
+            title="Run History"
+            icon={<Clock className="w-4 h-4 text-cyan-400" />}
+          />
 
-              <p className="text-xs font-semibold text-slate-200">{run.objective}</p>
-
-              {run.result && (
-                <div className="bg-slate-950 p-3 rounded-lg text-xs text-slate-300 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-slate-800/80">
-                  {run.result}
+          <div className="space-y-3">
+            {runs.map((run) => (
+              <div key={run.id} className="panel-card p-4 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-mono text-cyan-400 font-bold">
+                    {run.mode.toUpperCase()} RUN · {run.agent_id}
+                  </span>
+                  <StatusBadge status={runBadgeStatus(run.status)}>
+                    {run.status}
+                  </StatusBadge>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
+
+                <p className="text-xs font-semibold text-slate-200">{run.objective}</p>
+
+                {run.result && (
+                  <div className="bg-deep p-3 rounded-xl text-xs text-slate-300 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-slate-800">
+                    {run.result}
+                  </div>
+                )}
+              </div>
+            ))}
+            {!runs.length && (
+              <div className="panel-card p-6 text-center text-slate-500 font-mono text-xs">
+                No agent runs recorded yet. Execute a run to see results here.
+              </div>
+            )}
+          </div>
+        </PanelCard>
       )}
     </div>
   );

@@ -231,14 +231,14 @@ export function McpSkillsView() {
   );
 
   return (
-    <div className="p-4 sm:p-8 bg-[#0a0a0b] text-slate-100 max-w-6xl mx-auto space-y-8 font-sans min-h-[calc(100vh-80px)]">
+    <div className="panel-surface panel-content">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+      <div className="panel-header">
         <div>
           <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs uppercase tracking-wider mb-1">
             <Zap className="w-4 h-4" /> Model Context Protocol & Extensible Runtime Engine
           </div>
-          <h2 className="text-2xl sm:text-3xl font-light font-mono text-slate-100">
+          <h2 className="panel-title font-mono">
             MCP Servers & Dynamic Slash Skills
           </h2>
         </div>
@@ -279,7 +279,7 @@ export function McpSkillsView() {
       {/* SECTION 1: MCP SERVERS */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-mono text-slate-200 flex items-center gap-2">
+          <h3 className="panel-section-title">
             <Server className="w-4 h-4 text-cyan-400" /> Active Model Context Protocol Servers ({servers.length})
           </h3>
           <button
@@ -291,12 +291,12 @@ export function McpSkillsView() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        <div className="mcp-server-list">
           {servers.map((srv) => (
-            <div key={srv.id} className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80 hover:border-slate-700/80 transition-all flex flex-col justify-between gap-3">
+            <div key={srv.id} className="panel-card compact mcp-server-card">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-100 truncate max-w-[170px]">
+                  <span className="text-sm font-bold text-slate-100 truncate">
                     {srv.name}
                   </span>
                   <div className="flex items-center gap-1">
@@ -321,31 +321,31 @@ export function McpSkillsView() {
 
                 <div className="flex items-center gap-2">
                   <span
-                    className={`flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded border ${
+                    className={`badge ${
                       srv.status === 'connected'
-                        ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60'
-                        : 'bg-rose-950/80 text-rose-400 border-rose-800/60'
+                        ? 'badge-online'
+                        : 'badge-offline'
                     }`}
                   >
                     <CheckCircle2 className="w-3 h-3" /> {srv.status.toUpperCase()} ({srv.latencyMs}ms)
                   </span>
-                  <span className="text-[10px] font-mono bg-slate-950 text-slate-400 px-2 py-0.5 rounded border border-slate-800/80 uppercase">
+                  <span className="badge badge-info uppercase">
                     {srv.type}
                   </span>
                 </div>
 
-                <div className="text-[11px] font-mono text-slate-400 truncate">{srv.endpoint}</div>
+                <div className="text-xs font-mono text-slate-400 truncate">{srv.endpoint}</div>
               </div>
 
               {/* Exposed Tools */}
-              <div className="space-y-1.5 pt-2.5 border-t border-slate-800/80">
-                <span className="text-[11px] font-mono text-slate-400 block">Exposed Tools ({srv.tools.length}):</span>
+              <div className="space-y-2 pt-3 border-t border-slate-800">
+                <span className="text-xs font-mono text-slate-400 block">Exposed Tools ({srv.tools.length}):</span>
                 <div className="flex flex-wrap gap-1">
                   {srv.tools.map((t, idx) => (
                     <button
                       key={idx}
                       onClick={() => setToolTester({ server: srv, tool: t })}
-                      className="text-[10px] font-mono bg-slate-950 hover:bg-cyan-950 hover:text-cyan-300 text-cyan-400 px-2 py-1 rounded border border-slate-800/80 hover:border-cyan-700 transition-all flex items-center gap-1"
+                      className="btn btn-sm btn-secondary"
                       title="Click to test executing this tool"
                     >
                       <Play className="w-2.5 h-2.5" />
@@ -362,7 +362,7 @@ export function McpSkillsView() {
       {/* SECTION 2: INTEGRATED & CUSTOM SLASH SKILLS */}
       <div className="space-y-4 pt-4 border-t border-slate-800">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h3 className="text-lg font-mono text-slate-200 flex items-center gap-2">
+          <h3 className="panel-section-title">
             <Terminal className="w-4 h-4 text-cyan-400" /> Integrated & Custom Slash Skills ({skills.length})
           </h3>
 
@@ -378,22 +378,22 @@ export function McpSkillsView() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="mcp-skills-grid">
           {/* Skill Cards List */}
-          <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">
+          <div className="space-y-3 mcp-skill-list">
             {filteredSkills.map((skill) => {
               const isSelected = skill.id === selectedSkillId;
               return (
                 <div
                   key={skill.id}
                   onClick={() => setSelectedSkillId(skill.id)}
-                  className={`p-4 rounded-2xl border cursor-pointer transition-all flex items-center justify-between font-mono ${
+                  className={`panel-card compact cursor-pointer transition-all flex items-center justify-between font-mono ${
                     isSelected
-                      ? 'bg-slate-900 border-cyan-500/80 text-cyan-300 shadow-xl'
-                      : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200'
+                      ? 'border-cyan-500 text-cyan-300'
+                      : 'border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <div className="space-y-1 max-w-[80%]">
+                  <div className="space-y-1 mcp-skill-summary">
                     <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
                       <span>{skill.name}</span>
                       <span className="text-xs text-cyan-400 font-bold bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
@@ -439,7 +439,7 @@ export function McpSkillsView() {
 
           {/* Active Skill Inspector & Test Console */}
           {activeSkill ? (
-            <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl font-mono">
+            <div className="panel-card mcp-skill-inspector font-mono">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -447,7 +447,7 @@ export function McpSkillsView() {
                     <span className="text-xs font-bold text-cyan-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                       {activeSkill.slashCommand}
                     </span>
-                    <span className="text-[10px] uppercase bg-slate-950 text-slate-400 px-2 py-0.5 rounded border border-slate-800">
+                    <span className="badge badge-info uppercase">
                       {activeSkill.type}
                     </span>
                   </div>
@@ -501,7 +501,7 @@ export function McpSkillsView() {
 
                 {skillTestResult && (
                   <div className="bg-slate-950 p-3 rounded-xl border border-amber-500/30 text-xs text-slate-200 font-mono space-y-1">
-                    <div className="text-[10px] text-amber-400 font-bold">Execution Output:</div>
+                    <div className="text-caption text-amber-400 font-bold">Execution Output:</div>
                     <pre className="whitespace-pre-wrap text-emerald-300 font-mono max-h-36 overflow-y-auto">
                       {skillTestResult}
                     </pre>
@@ -510,7 +510,7 @@ export function McpSkillsView() {
               </div>
             </div>
           ) : (
-            <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800 rounded-2xl p-12 text-center text-slate-500 font-mono text-xs">
+            <div className="panel-card mcp-skill-inspector text-center text-slate-500 font-mono text-xs">
               Select a skill to inspect source code and execute tests.
             </div>
           )}
@@ -707,7 +707,7 @@ export function McpSkillsView() {
 
             {toolResult && (
               <div className="space-y-1 bg-slate-950 p-3 rounded-xl border border-cyan-500/30 text-xs">
-                <div className="text-cyan-400 font-bold text-[10px]">Execution Result Output:</div>
+                <div className="text-cyan-400 font-bold text-caption">Execution Result Output:</div>
                 <pre className="whitespace-pre-wrap text-emerald-300 font-mono max-h-48 overflow-y-auto leading-relaxed">
                   {toolResult}
                 </pre>

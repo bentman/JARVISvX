@@ -148,8 +148,7 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
         };
         // A zero-gain sink keeps Chromium pulling the worklet without monitoring mic audio.
         source.connect(node).connect(monitor).connect(context.destination);
-        const daemon = await window.jarvisDesktop?.daemon();
-        const assetBase = daemon ? `http://127.0.0.1:${daemon.port}/api/voice-assets` : `${window.location.origin}/api/voice-assets`;
+        const assetBase = await api.voiceAssetBase();
         worker.current.postMessage({ type: 'init', baseUrl: assetBase, enabled: workerListening(), mode: mode.current, voice: status.voice });
         const handleSpeak = (event: Event) => {
           const detail = (event as CustomEvent).detail;

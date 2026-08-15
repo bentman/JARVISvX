@@ -35,6 +35,14 @@ const setupDaemon = async () => {
 
 const getBaseUrl = (config: { port?: number; token?: string } | null) => (config && typeof config.port === 'number' && config.port > 0 ? `http://127.0.0.1:${config.port}` : '');
 
+const parseJsonResponse = async <T>(response: Response): Promise<T> => {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) return response.json();
+  const body = await response.text().catch(() => '');
+  const preview = body.trim().replace(/\s+/g, ' ').slice(0, 160);
+  throw new Error(preview ? `Expected JSON but received ${contentType || 'unknown content'}: ${preview}` : `Expected JSON but received ${contentType || 'unknown content'}.`);
+};
+
 const json = async <T>(url: string, options?: RequestInit): Promise<T> => {
   const config = await setupDaemon();
   const baseUrl = getBaseUrl(config);
@@ -43,10 +51,10 @@ const json = async <T>(url: string, options?: RequestInit): Promise<T> => {
     headers: { 'content-type': 'application/json', ...(config?.token ? { 'x-jarvis-token': config.token } : {}), ...options?.headers }
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const body: { error?: string } = await parseJsonResponse<{ error?: string }>(response).catch(() => ({}));
     throw new Error(body.error || `Request failed (${response.status})`);
   }
-  return response.status === 204 ? undefined as T : response.json();
+  return response.status === 204 ? undefined as T : parseJsonResponse<T>(response);
 };
 
 export const api = {
@@ -133,6 +141,11 @@ export const api = {
       buffer += decoder.decode(value, { stream: true }); const chunks = buffer.split('\n\n'); buffer = chunks.pop() || '';
       for (const chunk of chunks) { const row = chunk.split('\n').find((line) => line.startsWith('data:')); if (row) onEvent(JSON.parse(row.slice(5))); }
     }
+  },
+  async voiceAssetBase() {
+    const config = await setupDaemon();
+    const baseUrl = getBaseUrl(config);
+    return `${baseUrl || window.location.origin}/api/voice-assets`;
   }
 };
 
