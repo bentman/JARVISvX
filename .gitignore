@@ -1,7 +1,15 @@
 # Gitignore for JARVISvX (Mark 10)
-## Ignore all .env files except example file
-.env*
-!.env.example
+## Secrets and local environment
+# root env files
+/.env
+/.env.local
+/.env.*
+# tracked example
+!/.env.example
+# local agent/client state
+/.agents/
+/.claude/
+/.codex/
 
 ## Non-Durable App Data
 cache/**
