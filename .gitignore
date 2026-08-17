@@ -7,9 +7,9 @@
 # tracked example
 !/.env.example
 # local agent/client state
-/.agents/
-/.claude/
-/.codex/
+/.agents/**
+/.claude/**
+/.codex/**
 
 ## Non-Durable App Data
 cache/**
