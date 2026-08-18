@@ -1,13 +1,17 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, session } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, session, dialog } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { startDaemon, daemonDiscovery } from '../lib/daemon.mjs';
 import { DaemonClient } from '../lib/daemon-client.mjs';
+import { dataDirectory } from '../lib/database.mjs';
+import { migrateDataDirectory } from '../lib/data-migration.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '..');
-const electronProfile = path.join(projectRoot, 'data', 'electron-profile');
+// electronProfile follows the configured data directory so Chromium user data
+// moves alongside the rest of the app state when JARVIS_DATA_DIR is changed.
+const electronProfile = path.join(dataDirectory(), 'electron-profile');
 const electronCache = path.join(projectRoot, 'cache', 'electron');
 const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
 const iconPath = app.isPackaged ? path.join(process.resourcesPath, iconFile) : path.join(projectRoot, 'src', 'icon', iconFile);
@@ -19,6 +23,7 @@ app.setPath('sessionData', path.join(electronCache, 'session'));
 app.setPath('logs', path.join(electronCache, 'logs'));
 app.setPath('crashDumps', path.join(electronCache, 'crash-dumps'));
 let window; let tray; let daemon; let quitting = false;
+
 let ttsWorker; let ttsId = 0; let ttsQueue = Promise.resolve(); const ttsPending = new Map();
 const headlessVoiceHost = process.argv.includes('--jarvis-daemon');
 const singleInstance = app.requestSingleInstanceLock();
@@ -44,12 +49,40 @@ const createWindow = async () => {
 };
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(permission === 'media' && contents.getURL().startsWith('http://127.0.0.1:')));
+
+  // If a custom JARVIS_DATA_DIR is set, run migration with a native dialog
+  // for import/overwrite conflict resolution before the daemon opens the DB.
+  if (process.env.JARVIS_DATA_DIR && process.env.JARVIS_DATA_DIR.trim()) {
+    const defaultDataRoot = path.resolve(projectRoot, 'data');
+    const targetDataRoot = dataDirectory();
+    if (path.resolve(defaultDataRoot) !== path.resolve(targetDataRoot)) {
+      await migrateDataDirectory(defaultDataRoot, targetDataRoot, {
+        prompt: async ({ source, target }) => {
+          // Headless voice host: never block on a dialog.
+          if (headlessVoiceHost) return 'import';
+          const { response } = await dialog.showMessageBox({
+            type: 'question',
+            title: 'JARVIS Data Directory',
+            message: 'Data found in both locations',
+            detail: `Existing data detected at the configured destination:\n\n${target}\n\nChoose how to proceed:`,
+            buttons: ['Import existing data (safe merge)', 'Start fresh at destination (overwrite)', 'Cancel'],
+            defaultId: 0,
+            cancelId: 2,
+          });
+          if (response === 2) { app.quit(); process.exit(0); }
+          return response === 1 ? 'overwrite' : 'import';
+        },
+      });
+    }
+  }
+
   try { daemon = await startDaemon(); } catch (error) {
     const existing = await daemonDiscovery();
     if (!existing) throw error;
     try { await new DaemonClient(existing).health(); daemon = existing; } catch { throw error; }
   }
   await createWindow();
+
   const icon = nativeImage.createFromPath(iconPath); tray = new Tray(icon); tray.setToolTip('JARVISvX — voice host'); tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Show JARVIS', click: () => window.show() }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }])); tray.on('click', () => window.show());
   ipcMain.handle('jarvis:daemon', () => ({ port: daemon.port, token: daemon.token }));
   ipcMain.handle('jarvis:tts', (event, action, payload = {}) => {
