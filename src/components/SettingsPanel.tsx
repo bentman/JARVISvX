@@ -40,11 +40,14 @@ export function SettingsPanel({
               onChange={(e) => chooseProvider(e.target.value)}
               className="form-input w-full"
             >
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id} disabled={!provider.available && provider.id !== 'cloud'}>
-                  {provider.label} {provider.available ? '(Online)' : provider.id === 'cloud' ? '(Not Configured)' : '(Unavailable)'}
-                </option>
-              ))}
+              {providers.map((provider) => {
+                const isCloud = Boolean(provider.tags?.includes('cloud'));
+                return (
+                  <option key={provider.id} value={provider.id} disabled={!provider.available && !isCloud}>
+                    {provider.label} {provider.available ? '(Online)' : isCloud ? '(Not Configured)' : '(Unavailable)'}
+                  </option>
+                );
+              })}
             </select>
             <p className="form-helper">
               Select Ollama or llama.cpp for local-first execution, or Cloud for remote APIs.

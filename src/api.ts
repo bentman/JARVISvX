@@ -1,4 +1,4 @@
-import type { AgentProfile, AgentRun, Conversation, Diagnostics, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
+import type { AgentProfile, AgentRun, Conversation, Diagnostics, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, ProviderRecord, ProviderTestResult, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
 
 declare global {
   interface Window {
@@ -58,8 +58,18 @@ const json = async <T>(url: string, options?: RequestInit): Promise<T> => {
 };
 
 export const api = {
-  providers: () => json<{ settings: { activeProvider: string; activeModel: string | null; cloudConfigured: boolean }; providers: Provider[] }>('/api/providers'),
+  // Provider health/settings (old endpoint — used by App.tsx bootstrap)
+  providerHealth: () => json<{ settings: { activeProvider: string; activeModel: string | null; cloudConfigured: boolean }; providers: Provider[] }>('/api/providers'),
   models: (provider?: string) => json<{ provider: string; models: string[] }>(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
+
+  // Provider registry CRUD — namespaced under /provider-registry, distinct from the
+  // legacy /api/providers health+settings endpoint used by providerHealth() above.
+  providers: () => json<ProviderRecord[]>('/api/provider-registry'),
+  addProvider: (data: Partial<ProviderRecord> & { api_key?: string }) => json<ProviderRecord>('/api/provider-registry', { method: 'POST', body: JSON.stringify(data) }),
+  updateProvider: (id: string, data: Partial<ProviderRecord> & { api_key?: string }) => json<ProviderRecord>(`/api/provider-registry/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteProvider: (id: string) => json<{ removed: boolean }>(`/api/provider-registry/${id}`, { method: 'DELETE' }),
+  testProvider: (id: string) => json<ProviderTestResult>(`/api/provider-registry/${id}/test`, { method: 'POST', body: '{}' }),
+  toggleProvider: (id: string) => json<ProviderRecord>(`/api/provider-registry/${id}/toggle`, { method: 'POST', body: '{}' }),
   diagnostics: () => json<Diagnostics>('/api/diagnostics'),
   voice: () => json<VoiceRuntimeStatus>('/api/voice'),
   bootstrapVoice: (id: string) => json(`/api/voice/bootstrap/${id}`, { method: 'POST', body: '{}' }),

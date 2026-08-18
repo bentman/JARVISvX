@@ -1,4 +1,33 @@
-export type Provider = { id: string; label: string; available: boolean; models: string[]; reason?: string };
+export type ProviderProtocol = 'openai-compat' | 'ollama' | 'anthropic' | 'gemini' | 'azure-openai';
+export type ProviderTag = 'local' | 'cloud' | 'fast' | 'reasoning' | 'vision' | 'coding';
+
+// Returned by GET /api/providers (health-checked) — includes tags/priority so the UI
+// can tell a cloud-tagged provider from a local one without relying on a fixed id.
+export type Provider = { id: string; label: string; available: boolean; models: string[]; reason?: string; tags?: ProviderTag[]; priority?: number };
+
+export interface ProviderRecord {
+  id: string;
+  name: string;
+  protocol: ProviderProtocol;
+  base_url: string;
+  model: string;
+  api_key_set: boolean;
+  tags: ProviderTag[];
+  enabled: boolean;
+  priority: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProviderTestResult {
+  id: string;
+  label: string;
+  available: boolean;
+  models: string[];
+  latencyMs?: number;
+  reason?: string;
+}
+
 export type Message = { id: string; role: 'user' | 'assistant' | 'system'; content: string; provider?: string; status: string; created_at: string };
 export type Conversation = { id: string; title: string; created_at: string; updated_at: string; messages?: Message[] };
 export type Root = { id: string; path: string; added_at: string };
