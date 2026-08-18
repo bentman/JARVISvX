@@ -58,11 +58,10 @@
     "electron@39.8.10": true,
     "electron@40.10.6": true,
     "electron@41.10.5": true,
-    "esbuild@0.28.1": true,
     "onnxruntime-node@1.21.0": true,
     "protobufjs@7.6.5": true,
     "onnxruntime-node@1.27.0": true,
-    "sharp@0.34.5": true
+    "sharp@0.34.5": true,
+    "esbuild@0.28.2": true
   }
 }
-

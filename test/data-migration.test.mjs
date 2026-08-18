@@ -3,16 +3,33 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { resolveDataDirectory } from '../lib/database.mjs';
+import { resolveDataDirectory, PROJECT_ROOT } from '../lib/database.mjs';
 import { migrateDataDirectory, dataDirectoryInfo } from '../lib/data-migration.mjs';
 
 // ---------------------------------------------------------------------------
 // resolveDataDirectory — path resolution
 // ---------------------------------------------------------------------------
 
-test('resolveDataDirectory defaults to <cwd>/data when env is empty', () => {
+test('resolveDataDirectory defaults to <project-root>/data when env is empty', () => {
   const result = resolveDataDirectory('');
-  assert.equal(result, path.resolve('data'));
+  assert.equal(result, path.join(PROJECT_ROOT, 'data'));
+});
+
+// Regression test for: running the daemon via the globally-linked `jarvis` CLI
+// (or any other cwd) must not scatter data into the user's current directory —
+// the default has to be anchored to the project install, not process.cwd().
+test('resolveDataDirectory default does not depend on the current working directory', () => {
+  const originalCwd = process.cwd();
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-cwd-probe-'));
+  try {
+    process.chdir(elsewhere);
+    const result = resolveDataDirectory('');
+    assert.equal(result, path.join(PROJECT_ROOT, 'data'));
+    assert.notEqual(result, path.resolve('data'), 'default data dir must not be resolved against cwd');
+  } finally {
+    process.chdir(originalCwd);
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+  }
 });
 
 test('resolveDataDirectory resolves absolute path unchanged', () => {
