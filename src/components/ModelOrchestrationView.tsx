@@ -19,6 +19,22 @@ import { useToast } from '../hooks/useToast';
 
 const mergeModels = (...groups: string[][]) => Array.from(new Set(groups.flat().filter(Boolean)));
 
+// Probes every registered local provider (Ollama-protocol, or openai-compat
+// tagged 'local' — i.e. llama.cpp/llama.app-style endpoints) for its model
+// list, by their real registry ids. Provider ids are opaque generated
+// strings (see docs/conventions-ids-and-crud.md); there is no fixed
+// 'llamacpp'/'ollama' id to probe directly.
+async function discoverLocalProviderModels(): Promise<string[]> {
+  try {
+    const registry = await api.providers();
+    const localProviders = registry.filter((p) => p.protocol === 'ollama' || (p.protocol === 'openai-compat' && p.tags?.includes('local')));
+    const results = await Promise.all(localProviders.map((p) => api.models(p.id).then((res) => res.models).catch(() => [])));
+    return mergeModels(...results);
+  } catch {
+    return [];
+  }
+}
+
 export function ModelOrchestrationView() {
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
     mode: 'auto',
@@ -49,8 +65,7 @@ export function ModelOrchestrationView() {
       setActiveProviderId(effective.activeProvider);
       const discovered = await Promise.all([
         api.pingLocalEndpoint(data.settings.localEndpoint).then((res) => res.models).catch(() => []),
-        api.models('llamacpp').then((res) => res.models).catch(() => []),
-        api.models('ollama').then((res) => res.models).catch(() => [])
+        discoverLocalProviderModels(),
       ]);
       const models = mergeModels(...discovered);
       if (models.length > 0) {
@@ -97,11 +112,8 @@ export function ModelOrchestrationView() {
     setTestResult(null);
     try {
       const result = await api.pingLocalEndpoint(endpointInput);
-      const providerModels = await Promise.all([
-        api.models('llamacpp').then((res) => res.models).catch(() => []),
-        api.models('ollama').then((res) => res.models).catch(() => [])
-      ]);
-      const models = mergeModels(result.models || [], ...providerModels);
+      const providerModels = await discoverLocalProviderModels();
+      const models = mergeModels(result.models || [], providerModels);
       if (models.length > 0) {
         setDiscoveredModels(models);
       }

@@ -42,10 +42,13 @@ Execution is gated by each capability's existing trust level; no new
 approval mechanism is introduced:
 
 - Read-only workspace and MCP tools execute immediately.
-- Tools that write or execute (`write_workspace_file`,
-  `propose_workspace_edit`, mutating MCP tools) surface an
-  approval-required event, the same shape the workspace-edit
-  propose/approve flow already uses.
+- Tools that write or execute directly (`write_workspace_file`, mutating
+  MCP tools) surface an approval-required event, the same shape the
+  workspace-edit propose/approve flow already uses.
+  `propose_workspace_edit` itself executes immediately without that
+  gate — it never touches the filesystem, only stages a `pending_review`
+  row, and the existing approve/reject flow is the actual human
+  checkpoint for the write.
 - Skills execute directly once model-invoked, gated only by their
   existing `enabled` flag — they are pre-authored and stored by the user,
   not arbitrary untrusted code.
@@ -68,10 +71,37 @@ Each provider protocol needs its own tool-call wire format (OpenAI-style
 per-protocol work matching the SSE parsing each provider file already
 does independently.
 
-Phase A: workspace and MCP tools, `openai-compat` and `ollama` first
-(the protocols behind local, `llama.app`-hosted models), `anthropic` and
-`gemini` after. Phase B: skills become model-callable in addition to
-slash-matched. Phase C: agent delegation becomes model-callable.
+**Phase A — shipped.** `lib/capabilities.mjs` builds the registry from
+MCP-declared tools plus the two core app tools. `lib/application.mjs`'s
+`chat()` runs the bounded tool-call loop (workspace and MCP tools only)
+against it. `openai-compat` and `ollama` gained a `supportsToolCalling`
+flag (`lib/providers/base.mjs`, overridden per protocol) that gates the
+whole capability registry, the tool schema, and the system-prompt
+summary off entirely for any provider that hasn't opted in — Anthropic's
+API rejects a `role: 'system'` entry inside `messages`, so this isn't
+optional plumbing, it's what keeps those providers' turns working
+unchanged. `allowToolWrites` threads through `chat()`, both API clients,
+`src/App.tsx` (a checkbox next to the existing cloud-approval one), and
+`bin/jarvis.mjs` (`/approve-tools`, mirroring `/approve-cloud`).
+
+**Phase B — skills become model-callable.** `buildCapabilityRegistry`
+adds every enabled skill (`app.skills()`) to the same registry Phase A
+built, alongside MCP and core tools, not as a separate mechanism. Each
+skill's tool name is its slash command with the leading `/` stripped and
+any non `[a-zA-Z0-9_-]` character replaced with `_` (provider tool-name
+constraints are stricter than a slash command's characters); if that
+name collides with an existing MCP or core tool name, the skill is
+skipped rather than shadowing it — MCP and core tools take priority.
+Execution calls the same `executeSkill()` the `/slash` path already
+uses, so a skill behaves identically whichever entry point invoked it.
+Skills are read-only-permission in the registry, per the Decision
+section above — same trust level as typing the slash command directly.
+No changes to `chat()`'s tool loop are needed: it already dispatches
+generically off the registry, so adding skills to the registry is
+sufficient. `anthropic` and `gemini` remain out of scope until they gain
+`supportsToolCalling`.
+
+Phase C: agent delegation becomes model-callable.
 
 ## Consequences
 

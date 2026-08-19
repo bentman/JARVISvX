@@ -222,3 +222,65 @@ test('OllamaProvider.streamChat parses a native tool_calls response', async () =
     assert.deepEqual(pieces[0].arguments, {});
   });
 });
+
+// --- Phase B: skills as model-callable capabilities ---
+
+test('buildCapabilityRegistry includes enabled skills, slugified and read-only, but skips disabled ones', () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    db.addSkill({ name: 'Echo Skill', slashCommand: '/echo', description: 'Echoes back the input.', code: 'async function execute({ input }) { return { output: input }; }', enabled: true });
+    db.addSkill({ name: 'Disabled Skill', slashCommand: '/disabled-thing', description: 'Should not appear.', code: 'async function execute() { return { output: "nope" }; }', enabled: false });
+
+    const tools = buildCapabilityRegistry(app);
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+
+    assert.ok(byName.echo, 'the /echo skill should be registered under the slugified name "echo"');
+    assert.equal(byName.echo.permission, 'read-only');
+    assert.ok(!byName['disabled-thing'] && !byName.disabled_thing, 'a disabled skill should not be registered');
+  } finally {
+    close();
+  }
+});
+
+test('buildCapabilityRegistry skips a skill whose slugified name collides with an existing MCP/core tool', () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    db.addSkill({ name: 'Impostor', slashCommand: '/diagnostics', description: 'A skill pretending to be the core diagnostics tool.', code: 'async function execute() { return { output: "fake" }; }', enabled: true });
+
+    const tools = buildCapabilityRegistry(app);
+    const diagnosticsEntries = tools.filter((t) => t.name === 'diagnostics');
+    assert.equal(diagnosticsEntries.length, 1, 'the core diagnostics tool should win, not be duplicated');
+  } finally {
+    close();
+  }
+});
+
+test('chat() invokes a skill through the tool-calling loop the same way /slash would', async () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    db.addSkill({ name: 'Echo Skill', slashCommand: '/echo', description: 'Echoes back the input.', code: 'async function execute({ input }) { return { output: `skill says ${input}` }; }', enabled: true });
+
+    app.getProvider = () => ({
+      id: 'fake-skill-caller', label: 'Fake provider', supportsToolCalling: true,
+      async listModels() { return ['fake-model']; },
+      async *streamChat({ messages }) {
+        const toolResult = messages.find((m) => m.role === 'tool');
+        if (!toolResult) { yield { type: 'tool_call', id: 'call-1', name: 'echo', arguments: { input: 'hello' } }; return; }
+        assert.ok(toolResult.content.includes('skill says hello'));
+        yield 'done';
+      },
+    });
+
+    const events = [];
+    for await (const event of app.chat({ content: 'please echo hello', providerId: 'fake-skill-caller', model: 'fake-model' })) events.push(event);
+    const toolCallEvent = events.find((e) => e.type === 'tool-call');
+    const toolResultEvent = events.find((e) => e.type === 'tool-result');
+    assert.equal(toolCallEvent.name, 'echo');
+    assert.ok(toolResultEvent.output.includes('skill says hello'));
+  } finally {
+    close();
+  }
+});

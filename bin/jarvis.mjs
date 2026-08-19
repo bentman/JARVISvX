@@ -129,7 +129,7 @@ function Tui({ client }) {
         '/new               Start a fresh assistant conversation',
         '/sessions          List all historical conversations',
         '/resume <id>       Resume a past conversation by ID',
-        '/provider <id>     Switch active provider (llamacpp | ollama | cloud)',
+        '/provider <id>     Switch active provider — real ids from /settings, not fixed names',
         '/model [id]        Get or set active model weights',
         '/voice [id]        Get or set local Kokoro voice persona',
         '/listen            Enable voice wake word listening',
