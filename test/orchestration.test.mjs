@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
-import { evaluateTurnRouting, getHardwareProfile, pingLocalEndpoint } from '../lib/orchestrator.mjs';
+import { evaluateTurnRouting, getHardwareProfile, pingLocalEndpoint, routeTurn } from '../lib/orchestrator.mjs';
 
 test('database persists and updates orchestration settings', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-orch-db-'));
@@ -107,5 +107,95 @@ test('app initialization exposes orchestration methods', async () => {
 
   db.close();
   fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('app.settings() folds provider priority, model, and orchestration mode into one object', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-effective-settings-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+
+  // Two providers at different priorities — the lower number wins. Priority 1
+  // is deliberately lower than the DB's always-seeded default llama.cpp entry
+  // (priority 10) so this provider wins outright rather than tying with it.
+  app.addProvider({ name: 'Cloud Backup', protocol: 'openai-compat', base_url: 'http://example.invalid/v1', tags: ['cloud'], priority: 90 });
+  const primary = app.addProvider({ name: 'Local Primary', protocol: 'openai-compat', base_url: 'http://127.0.0.1:8080/v1', tags: ['local'], priority: 1 });
+  app.setModel(primary.id, 'llama-test-model');
+  app.updateOrchestrationSettings({ mode: 'local_only', autoEscalateRules: { maxCharCount: 123, requireSearch: false, requireCodeExecution: true } });
+
+  const settings = app.settings();
+  assert.equal(settings.activeProvider, primary.id, 'lowest-priority-number provider should be active');
+  assert.equal(settings.activeProviderLabel, 'Local Primary');
+  assert.equal(settings.activeModel, 'llama-test-model');
+  assert.equal(settings.isCloudProvider, false);
+  assert.equal(settings.cloudConfigured, true, 'a cloud-tagged provider exists even though it is not active');
+  assert.equal(settings.mode, 'local_only');
+  assert.deepEqual(settings.autoEscalateRules, { maxCharCount: 123, requireSearch: false, requireCodeExecution: true });
+
+  db.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('orchestration mode round-trips through settings() after an update', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mode-roundtrip-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+
+  assert.equal(app.settings().mode, 'auto', 'default mode before any update');
+  app.updateOrchestrationSettings({ mode: 'local_only' });
+  assert.equal(app.settings().mode, 'local_only');
+
+  db.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('routeTurn() branch behavior with a fake registry', () => {
+  const provider = (id, tags, priority = 50) => ({ id, label: id, tags, priority });
+  const makeRegistry = (providers) => ({
+    get: (id) => providers.find((p) => p.id === id) || null,
+    getByTags: (tags) => providers.filter((p) => tags.every((tag) => p.tags.includes(tag))).sort((a, b) => a.priority - b.priority),
+    list: () => [...providers].sort((a, b) => a.priority - b.priority),
+  });
+
+  const local = provider('local-1', ['local'], 10);
+  const cloud = provider('cloud-1', ['cloud'], 20);
+  const registry = makeRegistry([local, cloud]);
+
+  // 1. Explicit per-message override wins over everything else, including policy mode.
+  const override = routeTurn('hi', { mode: 'cloud_only', userOverrideProvider: 'local-1', allowCloud: false }, registry);
+  assert.equal(override.provider.id, 'local-1');
+
+  // 3. Pinned provider via mode: 'provider:<id>'.
+  const pinned = routeTurn('hi', { mode: 'provider:cloud-1', allowCloud: false }, registry);
+  assert.equal(pinned.provider.id, 'cloud-1');
+
+  // 4. local_only picks a local-tagged provider.
+  const localOnly = routeTurn('hi', { mode: 'local_only' }, registry);
+  assert.equal(localOnly.provider.id, 'local-1');
+
+  // 4b. local_only with no local provider fails loudly — never substitutes cloud.
+  const noLocalRegistry = makeRegistry([cloud]);
+  const localOnlyNoLocal = routeTurn('hi', { mode: 'local_only' }, noLocalRegistry);
+  assert.equal(localOnlyNoLocal.provider, null);
+  assert.ok(!localOnlyNoLocal.needsCloudApproval, 'local_only failure is not a cloud-approval prompt');
+
+  // 5. cloud_only without approval returns needsCloudApproval, no provider.
+  const cloudOnlyDenied = routeTurn('hi', { mode: 'cloud_only', allowCloud: false }, registry);
+  assert.equal(cloudOnlyDenied.provider, null);
+  assert.equal(cloudOnlyDenied.needsCloudApproval, true);
+
+  // 5b. cloud_only with approval picks the cloud-tagged provider.
+  const cloudOnlyAllowed = routeTurn('hi', { mode: 'cloud_only', allowCloud: true }, registry);
+  assert.equal(cloudOnlyAllowed.provider.id, 'cloud-1');
+
+  // 6. auto mode escalates to cloud only when allowed AND a rule matches.
+  const rules = { maxCharCount: 10, requireSearch: false, requireCodeExecution: false };
+  const autoShort = routeTurn('hi', { mode: 'auto', allowCloud: true, autoEscalateRules: rules }, registry);
+  assert.equal(autoShort.provider.id, 'local-1', 'short prompt stays local even when cloud is allowed');
+
+  const autoLongNoApproval = routeTurn('this prompt is deliberately longer than the threshold', { mode: 'auto', allowCloud: false, autoEscalateRules: rules }, registry);
+  assert.equal(autoLongNoApproval.provider.id, 'local-1', 'long prompt does not escalate without approval');
+
+  const autoLongApproved = routeTurn('this prompt is deliberately longer than the threshold', { mode: 'auto', allowCloud: true, autoEscalateRules: rules }, registry);
+  assert.equal(autoLongApproved.provider.id, 'cloud-1', 'long prompt escalates to cloud once approved');
 });
 

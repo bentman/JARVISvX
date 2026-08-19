@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
-import { autoSummarizeConversations, formatMemoriesContext } from '../lib/memory-engine.mjs';
+import { extractMemoryFactsByRegex, formatMemoriesContext } from '../lib/memory-engine.mjs';
 
 test('database seeds default long-term memories', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mem-db-'));
@@ -69,14 +69,14 @@ test('searchMemories performs keyword search over memory keys and values', () =>
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
-test('autoSummarizeConversations extracts long-term memories from conversation turns', () => {
+test('extractMemoryFactsByRegex extracts long-term memories from conversation turns', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mem-sum-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
 
   const conv = db.createConversation('Preference test');
   db.addMessage(conv.id, 'user', 'I always prefer dark mode themes for my project interfaces.');
 
-  const result = autoSummarizeConversations(db);
+  const result = extractMemoryFactsByRegex(db);
   assert.ok(result.addedCount >= 1, 'Should auto-extract user preference memory');
 
   const memories = db.memories('conversation_summary');

@@ -14,7 +14,8 @@ import {
 import { PanelCard } from './ui/PanelCard';
 import { PanelHeader } from './ui/PanelHeader';
 import { SectionDivider } from './ui/SectionDivider';
-import { StatusBadge } from './ui/StatusBadge';
+import { ToastStack } from './ui/ToastStack';
+import { useToast } from '../hooks/useToast';
 
 const mergeModels = (...groups: string[][]) => Array.from(new Set(groups.flat().filter(Boolean)));
 
@@ -35,13 +36,17 @@ export function ModelOrchestrationView() {
   const [isTesting, setIsTesting] = useState(false);
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
+  const toast = useToast();
+  // The real active provider id, from the same authoritative source every
+  // other panel reads — not a hardcoded protocol name like 'llamacpp'.
+  const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
 
   const loadOrchestrationData = async () => {
     try {
-      const data = await api.orchestration();
+      const [data, effective] = await Promise.all([api.orchestration(), api.effectiveSettings()]);
       setModelConfig(data.settings);
       setEndpointInput(data.settings.localEndpoint);
+      setActiveProviderId(effective.activeProvider);
       const discovered = await Promise.all([
         api.pingLocalEndpoint(data.settings.localEndpoint).then((res) => res.models).catch(() => []),
         api.models('llamacpp').then((res) => res.models).catch(() => []),
@@ -65,21 +70,23 @@ export function ModelOrchestrationView() {
     try {
       const updated = await api.updateOrchestration(newConfig);
       setModelConfig(updated);
-      setSavedSuccess('Orchestration settings saved');
-      setTimeout(() => setSavedSuccess(null), 2500);
+      toast.success('Orchestration settings saved');
     } catch (err: any) {
       setError(`Failed to save settings: ${err.message}`);
     }
   };
 
   const handleSelectModel = async (modelName: string) => {
+    if (!activeProviderId) {
+      setError('No active provider — add or enable a provider in Providers first.');
+      return;
+    }
     const nextConfig = { ...modelConfig, selectedLocalModel: modelName };
     setModelConfig(nextConfig);
     try {
-      await api.setModel('llamacpp', modelName);
+      await api.setModel(activeProviderId, modelName);
       await api.updateOrchestration(nextConfig);
-      setSavedSuccess(`Active model set to ${modelName}`);
-      setTimeout(() => setSavedSuccess(null), 2500);
+      toast.success(`Active model set to ${modelName}`);
     } catch (err: any) {
       setError(`Failed to set active model: ${err.message}`);
     }
@@ -124,16 +131,6 @@ export function ModelOrchestrationView() {
         icon={<Cpu className="w-5 h-5 text-cyan-400" />}
         title="Model Orchestration & Execution Policy"
         subtitle="Hardware-Aware Local Model Orchestrator"
-        actions={
-          <div className="flex items-center gap-3">
-            {savedSuccess && (
-              <StatusBadge status="success">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span className="font-mono">{savedSuccess}</span>
-              </StatusBadge>
-            )}
-          </div>
-        }
       />
 
       {error && (
@@ -408,6 +405,7 @@ export function ModelOrchestrationView() {
         </div>
       </PanelCard>
 
+      <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
     </div>
   );
 }

@@ -155,11 +155,12 @@ function ProviderForm({ form, setForm, onSave, onCancel, saving, isEdit, apiKeyS
 
 interface ProviderCardProps {
   record: ProviderRecord;
+  isActive: boolean;
   onUpdated: (r: ProviderRecord) => void;
   onDeleted: (id: string) => void;
 }
 
-function ProviderCard({ record, onUpdated, onDeleted }: ProviderCardProps) {
+function ProviderCard({ record, isActive, onUpdated, onDeleted }: ProviderCardProps) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>(formFromRecord(record));
   const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
@@ -208,6 +209,12 @@ function ProviderCard({ record, onUpdated, onDeleted }: ProviderCardProps) {
             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${protocolColor}`}>
               {PROTOCOL_LABELS[record.protocol]}
             </span>
+            {isActive && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                title="This provider will handle the next message">
+                Active
+              </span>
+            )}
             <span className={`w-1.5 h-1.5 rounded-full ${record.enabled ? 'bg-emerald-400' : 'bg-slate-500'}`}
               title={record.enabled ? 'Enabled' : 'Disabled'} />
             {testResult && <span className={`w-1.5 h-1.5 rounded-full ${testResult.available ? 'bg-emerald-400' : 'bg-red-400'}`}
@@ -268,12 +275,22 @@ export function ProvidersView() {
   const [addForm, setAddForm] = useState<FormState>(emptyForm());
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
+  // Which provider GET /api/settings/effective says is actually active —
+  // independent of the CRUD list above, refreshed after any mutation that
+  // could change provider priority/enablement.
+  const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
+
+  const refreshActiveProvider = async () => {
+    try { setActiveProviderId((await api.effectiveSettings()).activeProvider); }
+    catch { /* non-fatal — the CRUD list still loads independently */ }
+  };
 
   const load = async () => {
     setLoading(true);
     try { setRecords(await api.providers()); }
     catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
+    void refreshActiveProvider();
   };
 
   useEffect(() => { void load(); }, []);
@@ -333,9 +350,9 @@ export function ProvidersView() {
 
       <div className="panel-list">
         {records.map(r => (
-          <ProviderCard key={r.id} record={r}
-            onUpdated={updated => setRecords(rs => rs.map(p => p.id === updated.id ? updated : p))}
-            onDeleted={id => setRecords(rs => rs.filter(p => p.id !== id))} />
+          <ProviderCard key={r.id} record={r} isActive={r.id === activeProviderId}
+            onUpdated={updated => { setRecords(rs => rs.map(p => p.id === updated.id ? updated : p)); void refreshActiveProvider(); }}
+            onDeleted={id => { setRecords(rs => rs.filter(p => p.id !== id)); void refreshActiveProvider(); }} />
         ))}
       </div>
     </div>

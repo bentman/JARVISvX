@@ -19,6 +19,20 @@ export interface ProviderRecord {
   updated_at?: string;
 }
 
+// Returned by GET /api/settings/effective — the single authoritative read for
+// "what will handle the next message." Folds provider priority (the registry),
+// the per-provider model choice, and routing policy (orchestration settings)
+// into one object, so panels read this instead of re-deriving it independently.
+export interface EffectiveSettings {
+  activeProvider: string | null;
+  activeModel: string | null;
+  cloudConfigured: boolean;
+  activeProviderLabel: string | null;
+  isCloudProvider: boolean;
+  mode: 'auto' | 'local_only' | 'cloud_only' | string;
+  autoEscalateRules: { maxCharCount: number; requireSearch: boolean; requireCodeExecution: boolean };
+}
+
 export interface ProviderTestResult {
   id: string;
   label: string;
@@ -138,6 +152,10 @@ export interface VoiceRuntimeStatus {
   models?: any[];
   message?: string;
   detail?: string | null;
+  // Returned by GET /api/voice but not yet part of any voice-state SSE payload —
+  // a client needs a full refetch to pick these up (see src/hooks/useVoiceStatus.ts).
+  tuning?: any;
+  activeSession?: any;
 }
 
 export interface MemoryItem {

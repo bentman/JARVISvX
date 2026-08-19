@@ -140,6 +140,56 @@ test('Adapters probe status and generate tokens', async () => {
   assert.deepEqual(tokens, ['Hello from ProcessAdapter', ' with object token compatibility']);
 });
 
+// Finding 6 (docs/tech-debt-fragmentation-audit.md): ProcessAdapter.invoke() calls
+// getProvider() directly, bypassing chat()'s cloud-tag + allowCloud gate entirely — a
+// real, reachable path for an agent run to hit a cloud-tagged provider with zero user
+// approval. These two tests prove the gate that closes it, both in isolation and
+// threaded through the full executeAgentRun -> coordinator -> adapter call chain.
+test('ProcessAdapter blocks a cloud-tagged provider without allowCloud, and permits it with allowCloud', async () => {
+  const cloudProvider = {
+    tags: ['cloud'],
+    async *streamChat() { yield 'should never stream without approval'; }
+  };
+  const processAdapter = new ProcessAdapter({ getProvider: () => cloudProvider });
+  const agent = { id: 'researcher', name: 'Researcher', voice: 'af_sarah', instructions: '', capabilities: [] };
+
+  const blocked = [];
+  for await (const event of processAdapter.invoke({ prompt: 'test', agent, runId: 'run-1' })) blocked.push(event);
+  assert.deepEqual(blocked.map((e) => e.type), ['failed']);
+  assert.equal(blocked[0].code, 'cloud_approval_required');
+  assert.match(blocked[0].error, /explicit approval/);
+
+  const approved = [];
+  for await (const event of processAdapter.invoke({ prompt: 'test', agent, runId: 'run-2', allowCloud: true })) approved.push(event);
+  assert.ok(approved.some((e) => e.type === 'token' && e.value.includes('should never stream without approval')));
+  assert.ok(approved.some((e) => e.type === 'completed'));
+});
+
+test('executeAgentRun threads allowCloud from the API options through to the adapter', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initialize();
+  const agent = app.agentRuntime.registry.get('researcher');
+  app.agentRuntime.registry.profiles.set('researcher', { ...agent, adapter: 'process', capabilities: ['workspace.read'] });
+  let receivedAllowCloud;
+  app.agentRuntime.adapters.set('process', {
+    async *invoke({ agent, runId, allowCloud }) {
+      receivedAllowCloud = allowCloud;
+      yield { type: 'token', runId, agentId: agent.id, value: 'ok' };
+      yield { type: 'completed', runId, agentId: agent.id };
+    }
+  });
+
+  try {
+    await app.executeAgentRun({ agentId: 'researcher', objective: 'test', mode: 'solo', allowCloud: true });
+    assert.equal(receivedAllowCloud, true);
+
+    await app.executeAgentRun({ agentId: 'researcher', objective: 'test', mode: 'solo' });
+    assert.equal(receivedAllowCloud, false);
+  } finally {
+    cleanup();
+  }
+});
+
 test('AcpAdapter reports missing CLI as a failed event', async () => {
   const acp = new AcpAdapter();
   const events = [];

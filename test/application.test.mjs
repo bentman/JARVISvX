@@ -125,3 +125,23 @@ test('<think> reasoning is streamed as its own event and excluded from the persi
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('chat() auto-selects the lowest-priority-number provider when none is specified, unaffected by settings() changes', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+  // Priority 1 is deliberately lower than the DB's always-seeded default
+  // llama.cpp entry (priority 10) so this provider wins outright.
+  app.addProvider({ name: 'Secondary', protocol: 'openai-compat', base_url: 'http://127.0.0.1:1/v1', model: 'secondary-model', tags: ['local'], priority: 90 });
+  const primary = app.addProvider({ name: 'Primary', protocol: 'openai-compat', base_url: 'http://127.0.0.1:1/v1', model: 'primary-model', tags: ['local'], priority: 1 });
+
+  try {
+    const events = [];
+    for await (const event of app.chat({ content: 'hi', model: 'primary-model' })) events.push(event);
+    assert.equal(events[0].type, 'start');
+    assert.equal(events[0].provider, primary.id, 'the lower-priority-number provider should be selected by default');
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

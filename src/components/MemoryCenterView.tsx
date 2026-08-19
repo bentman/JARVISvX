@@ -12,7 +12,6 @@ import {
   Tag,
   ShieldCheck,
   Zap,
-  CheckCircle2,
   X,
   BookOpen,
   User,
@@ -22,8 +21,9 @@ import {
 import { PanelCard } from './ui/PanelCard';
 import { PanelHeader } from './ui/PanelHeader';
 import { SectionDivider } from './ui/SectionDivider';
-import { StatusBadge } from './ui/StatusBadge';
 import { Modal } from './ui/Modal';
+import { ToastStack } from './ui/ToastStack';
+import { useToast } from '../hooks/useToast';
 
 export function MemoryCenterView() {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
@@ -37,7 +37,7 @@ export function MemoryCenterView() {
   const [categoryInput, setCategoryInput] = useState<MemoryItem['category']>('user_preference');
   const [importanceInput, setImportanceInput] = useState<MemoryItem['importance']>('medium');
   const [error, setError] = useState<string | null>(null);
-  const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
+  const toast = useToast();
 
   const loadMemories = async () => {
     try {
@@ -84,7 +84,7 @@ export function MemoryCenterView() {
           category: categoryInput,
           importance: importanceInput
         });
-        setSavedSuccess('Memory updated successfully');
+        toast.success('Memory updated successfully');
       } else {
         await api.addMemory({
           key: keyInput.trim(),
@@ -92,11 +92,10 @@ export function MemoryCenterView() {
           category: categoryInput,
           importance: importanceInput
         });
-        setSavedSuccess('New memory entry stored');
+        toast.success('New memory entry stored');
       }
       setIsModalOpen(false);
       await loadMemories();
-      setTimeout(() => setSavedSuccess(null), 2500);
     } catch (err: any) {
       setError(err.message);
     }
@@ -106,8 +105,7 @@ export function MemoryCenterView() {
     try {
       await api.deleteMemory(id);
       await loadMemories();
-      setSavedSuccess('Memory entry removed');
-      setTimeout(() => setSavedSuccess(null), 2500);
+      toast.success('Memory entry removed');
     } catch (err: any) {
       setError(err.message);
     }
@@ -118,8 +116,7 @@ export function MemoryCenterView() {
     try {
       const res = await api.autoSummarizeMemory();
       await loadMemories();
-      setSavedSuccess(`Auto-summarization complete: Extracted ${res.addedCount} long-term facts.`);
-      setTimeout(() => setSavedSuccess(null), 3000);
+      toast.success(`Auto-summarization complete: Extracted ${res.addedCount} long-term facts.`, 3000);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -164,12 +161,6 @@ export function MemoryCenterView() {
         subtitle="Long-Term Memory & Context Engine"
         actions={
           <div className="flex items-center gap-3">
-            {savedSuccess && (
-              <StatusBadge status="success">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span className="font-mono">{savedSuccess}</span>
-              </StatusBadge>
-            )}
             <button
               onClick={handleAutoSummarize}
               disabled={isSummarizing}
@@ -416,6 +407,7 @@ export function MemoryCenterView() {
           </div>
         </form>
       </Modal>
+      <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
     </div>
   );
 }

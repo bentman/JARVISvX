@@ -1,4 +1,4 @@
-import type { AgentProfile, AgentRun, Conversation, Diagnostics, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, ProviderRecord, ProviderTestResult, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
+import type { AgentProfile, AgentRun, Conversation, Diagnostics, EffectiveSettings, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, ProviderRecord, ProviderTestResult, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
 
 declare global {
   interface Window {
@@ -90,8 +90,10 @@ export const api = {
   proposeWorkspaceEdit: (data: { path: string; content: string; reason?: string }) => json<WorkspaceEdit>('/api/workspace-edits/propose', { method: 'POST', body: JSON.stringify(data) }),
   approveWorkspaceEdit: (id: string) => json<WorkspaceEdit>(`/api/workspace-edits/${id}/approve`, { method: 'POST', body: '{}' }),
   rejectWorkspaceEdit: (id: string) => json<WorkspaceEdit>(`/api/workspace-edits/${id}/reject`, { method: 'POST', body: '{}' }),
-  setProvider: (provider: string) => json<void>('/api/settings/active-provider', { method: 'POST', body: JSON.stringify({ provider }) }),
   setModel: (provider: string, model: string) => json<void>('/api/settings/model', { method: 'POST', body: JSON.stringify({ provider, model }) }),
+  // The single authoritative read every panel should use for "what's active" —
+  // provider priority, model choice, and orchestration mode folded into one object.
+  effectiveSettings: () => json<EffectiveSettings>('/api/settings/effective'),
   cancel: (id: string, turnId?: string) => json<{ cancelled: boolean }>(`/api/chat/${id}/cancel`, { method: 'POST', body: JSON.stringify({ turnId }) }),
 
   // MCP Servers API

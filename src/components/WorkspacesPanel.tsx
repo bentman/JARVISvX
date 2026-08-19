@@ -16,6 +16,8 @@ import { PanelCard } from './ui/PanelCard';
 import { SectionDivider } from './ui/SectionDivider';
 import { StatusBadge } from './ui/StatusBadge';
 import { PanelHeader } from './ui/PanelHeader';
+import { ToastStack } from './ui/ToastStack';
+import { useToast } from '../hooks/useToast';
 
 export function WorkspacesPanel({
   roots,
@@ -30,7 +32,7 @@ export function WorkspacesPanel({
 }) {
   const [edits, setEdits] = useState<WorkspaceEdit[]>([]);
   const [loading, setLoading] = useState(false);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const toast = useToast();
 
   const loadEdits = useCallback(async () => {
     try { setEdits(await api.workspaceEdits()); } catch {}
@@ -54,10 +56,9 @@ export function WorkspacesPanel({
     setLoading(true);
     try {
       await api.approveWorkspaceEdit(id);
-      setActionSuccess('File edit approved & written to workspace!');
-      setTimeout(() => setActionSuccess(null), 3000);
+      toast.success('File edit approved & written to workspace!', 3000);
       await loadEdits();
-    } catch (err: any) { alert(`Failed to apply edit: ${err.message}`); }
+    } catch (err: any) { toast.error(`Failed to apply edit: ${err.message}`); }
     finally { setLoading(false); }
   };
 
@@ -65,23 +66,21 @@ export function WorkspacesPanel({
     setLoading(true);
     try {
       await api.rejectWorkspaceEdit(id);
-      setActionSuccess('Proposed edit rejected.');
-      setTimeout(() => setActionSuccess(null), 2500);
+      toast.success('Proposed edit rejected.');
       await loadEdits();
-    } catch (err: any) { alert(`Failed to reject edit: ${err.message}`); }
+    } catch (err: any) { toast.error(`Failed to reject edit: ${err.message}`); }
     finally { setLoading(false); }
   };
 
   const handleProposeTestEdit = async () => {
-    if (!roots.length) { alert('Add an approved workspace root first.'); return; }
+    if (!roots.length) { toast.error('Add an approved workspace root first.'); return; }
     const targetFile = `${roots[0].path}/jarvis-sample-skill.ts`;
     const sampleCode = `// JARVIS Self-Evolution Generated Module\nexport function customAssistantSubroutine(input: string) {\n  return { processed: true, result: \`Hello from JARVIS Future-Safe Boundary: \${input}\` };\n}`;
     try {
       await api.proposeWorkspaceEdit({ path: targetFile, content: sampleCode, reason: 'Self-evolution subroutine proposal' });
-      setActionSuccess('Test edit proposed for human review!');
-      setTimeout(() => setActionSuccess(null), 3000);
+      toast.success('Test edit proposed for human review!', 3000);
       await loadEdits();
-    } catch (err: any) { alert(`Failed to propose edit: ${err.message}`); }
+    } catch (err: any) { toast.error(`Failed to propose edit: ${err.message}`); }
   };
 
   const pendingEdits = edits.filter((e) => e.status === 'pending_review');
@@ -143,12 +142,6 @@ export function WorkspacesPanel({
           Skills and self-evolution routines may propose code edits for review, but cannot execute or write files without explicit human approval.
         </p>
 
-        {actionSuccess && (
-          <div className="p-3 rounded-xl bg-success-subtle border border-emerald text-success text-xs font-mono">
-            {actionSuccess}
-          </div>
-        )}
-
         <button
           onClick={handleProposeTestEdit}
           className="btn btn-sm btn-secondary"
@@ -208,6 +201,7 @@ export function WorkspacesPanel({
           </>
         )}
       </PanelCard>
+      <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
     </div>
   );
 }

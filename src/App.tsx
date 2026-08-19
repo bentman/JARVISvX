@@ -118,7 +118,12 @@ export default function App() {
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => { if (event.key !== 'Enter' || event.altKey) return; event.preventDefault(); void send(); };
   const cancel = async () => { const activeTurn = activeTurnRef.current; window.dispatchEvent(new CustomEvent('jarvis:speak', { detail: { type: 'interrupt', conversationId: activeTurn?.conversationId, turnId: activeTurn?.turnId } })); if (activeTurn?.conversationId) await api.cancel(activeTurn.conversationId, activeTurn.turnId); else if (current?.id && current.id !== 'pending') await api.cancel(current.id); };
   const pushToTalk = () => { window.dispatchEvent(new CustomEvent('jarvis:speak', { detail: { type: 'capture' } })); void api.setVoiceState('capturing'); };
-  const chooseProvider = async (id: string) => { setActiveProvider(id); setSelectedModel(''); setError(''); try { await api.setProvider(id); await refresh(); } catch (err: any) { setError(err.message); } };
+  // Local-state-only: there is no backend "active provider" to persist — the
+  // provider id is passed explicitly per-turn into chat() (see send()). This
+  // used to also call api.setProvider() then refresh(), but that write was
+  // never read back anywhere and refresh() immediately re-derived
+  // activeProvider from registry priority, silently reverting the user's pick.
+  const chooseProvider = (id: string) => { setActiveProvider(id); setSelectedModel(''); setError(''); };
   const chooseModel = async (model: string) => { setSelectedModel(model); try { await api.setModel(activeProvider, model); } catch (err: any) { setError(err.message); } };
   const loadDiagnostics = useCallback(async () => {
     try { setDiagnostics(await api.diagnostics()); }

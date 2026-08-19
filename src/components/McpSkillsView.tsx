@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import { McpServer, McpTool, SkillModule } from '../types';
+import { Modal } from './ui/Modal';
+import { StatusBadge } from './ui/StatusBadge';
 import {
   Zap,
   Server,
@@ -320,18 +322,10 @@ export function McpSkillsView() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span
-                    className={`badge ${
-                      srv.status === 'connected'
-                        ? 'badge-online'
-                        : 'badge-offline'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3 h-3" /> {srv.status.toUpperCase()} ({srv.latencyMs}ms)
-                  </span>
-                  <span className="badge badge-info uppercase">
-                    {srv.type}
-                  </span>
+                  <StatusBadge status={srv.status === 'connected' ? 'online' : 'offline'} icon={<CheckCircle2 className="w-3 h-3" />}>
+                    {srv.status.toUpperCase()} ({srv.latencyMs}ms)
+                  </StatusBadge>
+                  <StatusBadge status="info" className="uppercase">{srv.type}</StatusBadge>
                 </div>
 
                 <div className="text-xs font-mono text-slate-400 truncate">{srv.endpoint}</div>
@@ -447,9 +441,7 @@ export function McpSkillsView() {
                     <span className="text-xs font-bold text-cyan-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                       {activeSkill.slashCommand}
                     </span>
-                    <span className="badge badge-info uppercase">
-                      {activeSkill.type}
-                    </span>
+                    <StatusBadge status="info" className="uppercase">{activeSkill.type}</StatusBadge>
                   </div>
                   <p className="text-xs text-slate-400 font-sans mt-1">{activeSkill.description}</p>
                 </div>
@@ -518,171 +510,152 @@ export function McpSkillsView() {
       </div>
 
       {/* MODAL: ADD MCP SERVER */}
-      {showAddServerModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl font-mono">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                <Server className="w-4 h-4 text-cyan-400" /> Add Model Context Protocol Server
-              </h3>
-              <button onClick={() => setShowAddServerModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddServerSubmit} className="space-y-4 text-xs">
-              <div className="space-y-1">
-                <label className="text-slate-400">Server Name</label>
-                <input
-                  type="text"
-                  value={newServerName}
-                  onChange={(e) => setNewServerName(e.target.value)}
-                  placeholder="e.g. Postgres DB MCP Server"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-400">Protocol Type</label>
-                <select
-                  value={newServerType}
-                  onChange={(e) => setNewServerType(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="http">HTTP JSON-RPC Endpoint</option>
-                  <option value="sse">Server-Sent Events (SSE)</option>
-                  <option value="stdio">Local Stdio Command Process</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-400">Endpoint URL / Stdio Command</label>
-                <input
-                  type="text"
-                  value={newServerEndpoint}
-                  onChange={(e) => setNewServerEndpoint(e.target.value)}
-                  placeholder="e.g. http://localhost:8084/mcp/v1"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
-                  required
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddServerModal(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400">
-                  Register Server
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showAddServerModal}
+        onClose={() => setShowAddServerModal(false)}
+        title="Add Model Context Protocol Server"
+        icon={<Server className="w-4 h-4 text-cyan-400" />}
+        maxWidth="480px"
+      >
+        <form onSubmit={handleAddServerSubmit} className="space-y-4 text-xs">
+          <div className="space-y-1">
+            <label className="text-slate-400">Server Name</label>
+            <input
+              type="text"
+              value={newServerName}
+              onChange={(e) => setNewServerName(e.target.value)}
+              placeholder="e.g. Postgres DB MCP Server"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
+              required
+            />
           </div>
-        </div>
-      )}
+
+          <div className="space-y-1">
+            <label className="text-slate-400">Protocol Type</label>
+            <select
+              value={newServerType}
+              onChange={(e) => setNewServerType(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
+            >
+              <option value="http">HTTP JSON-RPC Endpoint</option>
+              <option value="sse">Server-Sent Events (SSE)</option>
+              <option value="stdio">Local Stdio Command Process</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-slate-400">Endpoint URL / Stdio Command</label>
+            <input
+              type="text"
+              value={newServerEndpoint}
+              onChange={(e) => setNewServerEndpoint(e.target.value)}
+              placeholder="e.g. http://localhost:8084/mcp/v1"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
+              required
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowAddServerModal(false)}
+              className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
+            >
+              Cancel
+            </button>
+            <button type="submit" className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400">
+              Register Server
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* MODAL: ADD / EDIT SKILL */}
-      {showAddSkillModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl font-mono max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                <Code className="w-4 h-4 text-cyan-400" />
-                {editingSkill ? 'Edit Custom Skill' : 'Create Custom Slash Skill'}
-              </h3>
-              <button onClick={() => setShowAddSkillModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
+      <Modal
+        isOpen={showAddSkillModal}
+        onClose={() => setShowAddSkillModal(false)}
+        title={editingSkill ? 'Edit Custom Skill' : 'Create Custom Slash Skill'}
+        icon={<Code className="w-4 h-4 text-cyan-400" />}
+        maxWidth="520px"
+      >
+        <form onSubmit={handleSaveSkillSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-slate-400">Skill Display Name</label>
+              <input
+                type="text"
+                value={skillName}
+                onChange={(e) => setSkillName(e.target.value)}
+                placeholder="e.g. Weather Radar"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
+                required
+              />
             </div>
 
-            <form onSubmit={handleSaveSkillSubmit} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-400">Skill Display Name</label>
-                  <input
-                    type="text"
-                    value={skillName}
-                    onChange={(e) => setSkillName(e.target.value)}
-                    placeholder="e.g. Weather Radar"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-slate-400">Slash Command Trigger</label>
-                  <input
-                    type="text"
-                    value={skillCmd}
-                    onChange={(e) => setSkillCmd(e.target.value)}
-                    placeholder="e.g. /weather"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-cyan-300 font-bold focus:outline-none focus:border-cyan-500"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-400">Description</label>
-                <input
-                  type="text"
-                  value={skillDesc}
-                  onChange={(e) => setSkillDesc(e.target.value)}
-                  placeholder="e.g. Fetches local weather forecast data"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-400">JavaScript / Async Subroutine Code</label>
-                <textarea
-                  value={skillCode}
-                  onChange={(e) => setSkillCode(e.target.value)}
-                  placeholder="async function execute({ input, app }) { ... }"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-emerald-400 focus:outline-none focus:border-cyan-500 h-36 font-mono text-xs leading-relaxed"
-                  required
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddSkillModal(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400">
-                  Save Skill
-                </button>
-              </div>
-            </form>
+            <div className="space-y-1">
+              <label className="text-slate-400">Slash Command Trigger</label>
+              <input
+                type="text"
+                value={skillCmd}
+                onChange={(e) => setSkillCmd(e.target.value)}
+                placeholder="e.g. /weather"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-cyan-300 font-bold focus:outline-none focus:border-cyan-500"
+                required
+              />
+            </div>
           </div>
-        </div>
-      )}
+
+          <div className="space-y-1">
+            <label className="text-slate-400">Description</label>
+            <input
+              type="text"
+              value={skillDesc}
+              onChange={(e) => setSkillDesc(e.target.value)}
+              placeholder="e.g. Fetches local weather forecast data"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
+              required
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-slate-400">JavaScript / Async Subroutine Code</label>
+            <textarea
+              value={skillCode}
+              onChange={(e) => setSkillCode(e.target.value)}
+              placeholder="async function execute({ input, app }) { ... }"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-emerald-400 focus:outline-none focus:border-cyan-500 h-36 font-mono text-xs leading-relaxed"
+              required
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowAddSkillModal(false)}
+              className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
+            >
+              Cancel
+            </button>
+            <button type="submit" className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400">
+              Save Skill
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* MODAL: TOOL TESTER */}
-      {toolTester && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl font-mono">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  <Play className="w-4 h-4 text-cyan-400" /> Execute Tool: {toolTester.tool.name}
-                </h3>
-                <p className="text-xs text-slate-400 font-sans mt-0.5">
-                  Server: {toolTester.server.name} ({toolTester.server.endpoint})
-                </p>
-              </div>
-              <button onClick={() => setToolTester(null)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <Modal
+        isOpen={Boolean(toolTester)}
+        onClose={() => setToolTester(null)}
+        title={`Execute Tool: ${toolTester?.tool.name || ''}`}
+        icon={<Play className="w-4 h-4 text-cyan-400" />}
+        maxWidth="520px"
+      >
+        {toolTester && (
+          <>
+            <p className="text-xs text-slate-400 font-sans mb-3">
+              Server: {toolTester.server.name} ({toolTester.server.endpoint})
+            </p>
 
             <form onSubmit={handleExecuteTool} className="space-y-4 text-xs">
               <div className="space-y-1">
@@ -713,9 +686,9 @@ export function McpSkillsView() {
                 </pre>
               </div>
             )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

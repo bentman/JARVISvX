@@ -15,9 +15,8 @@ the registry-list endpoint was dead code from the moment it was added, and
 nothing surfaced the bug because both routes returned JSON with no shape
 validation on the client.
 
-This was found and fixed under the "app fragmentation" tech-debt audit
-(`docs/tech-debt-fragmentation-audit.md`, finding on route collisions) as
-part of an earlier "fix it without breaking anything else" pass.
+This was found via the app-fragmentation tech-debt audit
+(`docs/tech-debt-fragmentation-audit.md`, route-collision finding).
 
 ## Decision
 
@@ -41,10 +40,10 @@ while `listProviders()`, `createProvider()`, `updateProvider()`,
 
 - No more silent route shadowing — the two concerns (a fast health summary
   vs. authoritative CRUD) are addressed at genuinely different URLs.
-- Frontend code must pick the right client method for the job; `providers()`
-  intentionally no longer exists as a single ambiguous export in `src/api.ts`
-  to make that choice explicit at each call site.
-- Any external tooling or scripts that called the old registry-shaped
-  `GET /providers` (if any existed, given it never actually worked) must be
-  updated to `GET /provider-registry`. The health-check shape at
-  `GET /providers` is unchanged and remains backward compatible.
+- Frontend code picks the right client method for the job; `src/api.ts` has
+  no single `providers()` export, so each call site names the concern it
+  needs.
+- External tooling or scripts calling the old registry-shaped
+  `GET /providers` route must switch to `GET /provider-registry` — that
+  route never functioned, since the health-check handler shadowed it. The
+  health-check shape at `GET /providers` is unchanged.

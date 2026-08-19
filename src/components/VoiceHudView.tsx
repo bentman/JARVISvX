@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { VoiceRuntimeStatus } from '../types';
+import { useVoiceStatus } from '../hooks/useVoiceStatus';
 import { VoiceOrb } from './VoiceOrb';
 import {
   Mic,
@@ -18,7 +18,9 @@ import { SectionDivider } from './ui/SectionDivider';
 import { StatusBadge } from './ui/StatusBadge';
 
 export function VoiceHudView() {
-  const [voiceStatus, setVoiceStatus] = useState<VoiceRuntimeStatus | null>(null);
+  // Bootstrap fetch + live SSE updates, shared with VoiceControls/VoiceDiagnostics —
+  // see src/hooks/useVoiceStatus.ts. Replaces the old per-panel 3s poll of GET /api/voice.
+  const { voice: voiceStatus, refresh: refreshStatus, error: voiceError } = useVoiceStatus();
   const [activeVoice, setActiveVoice] = useState('bf_isabella');
   const [activeMode, setActiveMode] = useState('wake');
   const [currentState, setCurrentState] = useState('wake-listening');
@@ -31,23 +33,15 @@ export function VoiceHudView() {
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  const refreshStatus = async () => {
-    try {
-      const status = await api.voice();
-      setVoiceStatus(status);
-      if (status.voice) setActiveVoice(status.voice);
-      if (status.mode) setActiveMode(status.mode);
-      if (status.state) setCurrentState(status.state);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load voice status');
-    }
-  };
+  useEffect(() => {
+    if (voiceStatus?.voice) setActiveVoice(voiceStatus.voice);
+    if (voiceStatus?.mode) setActiveMode(voiceStatus.mode);
+    if (voiceStatus?.state) setCurrentState(voiceStatus.state);
+  }, [voiceStatus]);
 
   useEffect(() => {
-    refreshStatus();
-    const interval = setInterval(refreshStatus, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    if (voiceError) setError(voiceError);
+  }, [voiceError]);
 
   // Web Audio Micro-analyzer
   useEffect(() => {

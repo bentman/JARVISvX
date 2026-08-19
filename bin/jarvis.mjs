@@ -37,14 +37,18 @@ function Tui({ client }) {
       if (prompt) {
         setLines((items) => [...items, { role: 'you', content }, { role: 'jarvis', content: '' }]);
         try {
+          // /approve-cloud covers the next cloud-touching action, agent run or chat
+          // turn alike — mirrors the allowCloud plumbing chat() already has below.
           const run = await client.json('/agents/run', {
             method: 'POST',
-            body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approved: agentApproved })
+            body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approved: agentApproved, allowCloud: cloudApproved })
           });
           setAgentApproved(false);
+          setCloudApproved(false);
           setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result || 'Agent run complete.' }]);
         } catch (error) {
           setAgentApproved(false);
+          setCloudApproved(false);
           setLines((items) => [...items, { role: 'error', content: error.message }]);
         }
         return;
@@ -86,12 +90,14 @@ function Tui({ client }) {
         try {
           const run = await client.json('/agents/run', {
             method: 'POST',
-            body: JSON.stringify({ agentIds, objective, mode: name, conversationId: conversation?.id, approved: agentApproved })
+            body: JSON.stringify({ agentIds, objective, mode: name, conversationId: conversation?.id, approved: agentApproved, allowCloud: cloudApproved })
           });
           setAgentApproved(false);
+          setCloudApproved(false);
           setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result }]);
         } catch (error) {
           setAgentApproved(false);
+          setCloudApproved(false);
           setLines((items) => [...items, { role: 'error', content: error.message }]);
         }
         return;
@@ -99,9 +105,13 @@ function Tui({ client }) {
       if (name === 'voice') { if (rest[0]) await client.setVoice(rest[0]); const voice = await client.voice(); return setLines((items) => [...items, { role: 'system', content: `Voice: ${voice.voice}; ${voice.message}` }]); }
       if (name === 'listen' || name === 'mute') { await client.setListening(name === 'listen'); return setLines((items) => [...items, { role: 'system', content: name === 'listen' ? 'Listening enabled.' : 'Listening muted.' }]); }
       if (name === 'interrupt' && conversation) { await client.cancel(conversation.id); return; }
-      if (name === 'provider' && rest[0]) { await client.setProvider(rest[0]); setProvider(rest[0]); setModel(''); return; }
+      // Local-state-only: there is no backend "active provider" to persist — the
+      // provider id is passed explicitly per-turn into client.chat() (see submit()).
+      // This used to also call client.setProvider(), a write nothing ever read back
+      // (see App.tsx's chooseProvider() for the same fix on the web UI side).
+      if (name === 'provider' && rest[0]) { setProvider(rest[0]); setModel(''); return; }
       if (name === 'model') { if (!rest[0]) return setLines((items) => [...items, { role: 'system', content: `Model: ${model || 'not selected'}` }]); await client.setModel(provider, rest.join(' ')); setModel(rest.join(' ')); return; }
-      if (name === 'approve-cloud') { setCloudApproved(true); return setLines((items) => [...items, { role: 'system', content: 'Cloud approved for the next turn only.' }]); }
+      if (name === 'approve-cloud') { setCloudApproved(true); return setLines((items) => [...items, { role: 'system', content: 'Cloud approved for the next turn or agent run only.' }]); }
       if (name === 'approve-agent') { setAgentApproved(true); return setLines((items) => [...items, { role: 'system', content: 'Privileged agent capabilities approved for the next agent run only.' }]); }
       if (name === 'workspace') { const [action, value] = rest; if (action === 'list') { const roots = await client.json('/workspace-roots'); return setLines((items) => [...items, { role: 'system', content: roots.map((root) => `${root.id.slice(0, 8)}  ${root.path}`).join('\n') || 'No approved workspace roots.' }]); } if (action === 'add' && value) { const root = await client.json('/workspace-roots', { method: 'POST', body: JSON.stringify({ path: value }) }); return setLines((items) => [...items, { role: 'system', content: `Approved: ${root.path}` }]); } return setLines((items) => [...items, { role: 'error', content: 'Usage: /workspace list | /workspace add <absolute-path>' }]); }
       if (name === 'settings') { const settings = await client.providers(); const voice = await client.voice(); return setLines((items) => [...items, { role: 'system', content: JSON.stringify({ ...settings.settings, voice: { state: voice.state, voice: voice.voice } }, null, 2) }]); }
@@ -119,7 +129,7 @@ function Tui({ client }) {
         '/listen            Enable voice wake word listening',
         '/mute              Mute voice wake word listening',
         '/interrupt         Stop active assistant turn or playback',
-        '/approve-cloud     Approve cloud escalation for the next prompt',
+        '/approve-cloud     Approve cloud escalation for the next prompt or agent run',
         '/approve-agent     Approve privileged agent capabilities for the next agent run',
         '/doctor            Display live system hardware & runtime diagnostics',
         '/workspace         Manage approved workspace folder roots (list | add <path>)',

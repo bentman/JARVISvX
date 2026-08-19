@@ -57,7 +57,7 @@ test('voice mode changes are runtime-only and published for the audio host', () 
   runtime.setMode('ptt');
   assert.equal(runtime.mode, 'ptt');
   assert.equal(settings.has('voice.mode'), false);
-  assert.deepEqual(events.at(-1), { type: 'voice-state', state: 'bootstrap', mode: 'ptt' });
+  assert.deepEqual(events.at(-1), { type: 'voice-state', state: 'bootstrap', mode: 'ptt', message: runtime.message('bootstrap') });
   assert.throws(() => runtime.setMode('always-on'), /Unsupported local voice mode/);
 });
 

@@ -16,19 +16,27 @@ export interface ModalProps {
  * Features backdrop blur, focus management, and ESC-to-close support.
  */
 export function Modal({ isOpen, onClose, title, icon, children, footer, maxWidth = '640px' }: ModalProps) {
-  if (!isOpen) return null;
-
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onClose();
-  };
-
+  // Hooks must run on every render regardless of isOpen — callers mount <Modal
+  // isOpen={...}> unconditionally (see MemoryCenterView.tsx) rather than wrapping it
+  // in a conditional, so an isOpen: false -> true flip is a re-render of an already-
+  // mounted instance, not a fresh mount. A hook called only when isOpen is true would
+  // change the hook count between renders of the same instance — a Rules-of-Hooks
+  // violation that throws at runtime the first time the modal opens. The early return
+  // below must stay after every hook call.
   React.useEffect(() => {
+    if (!isOpen) return;
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [onClose]);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const handleOverlayClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) onClose();
+  };
 
   return (
     <div className="modal-overlay" onClick={handleOverlayClick}>
