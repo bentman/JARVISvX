@@ -284,3 +284,97 @@ test('chat() invokes a skill through the tool-calling loop the same way /slash w
     close();
   }
 });
+
+// --- Phase C: agent delegation as a model-callable capability ---
+
+// Swaps a real agent profile's adapter for a deterministic in-process one, the
+// same substitution test/agent-runtime.test.mjs uses to avoid depending on a
+// real external CLI (claude/codex/copilot/...) being installed.
+function useProcessAgent(app, agentId, respond) {
+  const agent = app.agentRuntime.registry.get(agentId);
+  app.agentRuntime.registry.profiles.set(agentId, { ...agent, adapter: 'process' });
+  app.agentRuntime.adapters.set('process', {
+    async *invoke({ agent: targetAgent, prompt, runId }) {
+      yield { type: 'token', runId, agentId: targetAgent.id, value: respond(prompt) };
+      yield { type: 'completed', runId, agentId: targetAgent.id };
+    },
+  });
+}
+
+test('buildCapabilityRegistry lists agent delegation as read-only listing plus approval-required delegation', () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    const tools = buildCapabilityRegistry(app);
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+
+    assert.ok(byName.agents_list, 'agents_list should be registered');
+    assert.equal(byName.agents_list.permission, 'read-only');
+    assert.ok(byName.agents_ask, 'agents_ask should be registered');
+    assert.equal(byName.agents_ask.permission, 'approval-required');
+    assert.ok(byName.agents_ask.parameters.properties.targetAgentId.enum.includes('architect'), 'agents_ask should enumerate real agent ids');
+  } finally {
+    close();
+  }
+});
+
+test('chat() pauses agent delegation for approval, then runs the delegated agent and feeds its result back', async () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    useProcessAgent(app, 'researcher', (prompt) => `researcher findings: ${prompt}`);
+
+    app.getProvider = () => ({
+      id: 'fake-agent-caller', label: 'Fake provider', supportsToolCalling: true,
+      async listModels() { return ['fake-model']; },
+      async *streamChat({ messages }) {
+        const toolResult = messages.find((m) => m.role === 'tool');
+        if (!toolResult) { yield { type: 'tool_call', id: 'call-1', name: 'agents_ask', arguments: { targetAgentId: 'researcher', objective: 'survey the auth module' } }; return; }
+        assert.ok(toolResult.content.includes('researcher findings: survey the auth module'));
+        yield 'delegation complete';
+      },
+    });
+
+    const blocked = [];
+    for await (const event of app.chat({ content: 'ask the researcher to survey the auth module', providerId: 'fake-agent-caller', model: 'fake-model' })) blocked.push(event);
+    assert.deepEqual(blocked.map((e) => e.type), ['start', 'tool-approval-required', 'turn-complete']);
+    assert.equal(blocked[1].name, 'agents_ask');
+
+    const allowed = [];
+    for await (const event of app.chat({ content: 'ask the researcher to survey the auth module', conversationId: blocked[0].conversationId, providerId: 'fake-agent-caller', model: 'fake-model', allowToolWrites: true })) allowed.push(event);
+    const toolCallEvent = allowed.find((e) => e.type === 'tool-call');
+    const toolResultEvent = allowed.find((e) => e.type === 'tool-result');
+    assert.equal(toolCallEvent.name, 'agents_ask');
+    assert.ok(toolResultEvent.output.includes('researcher findings: survey the auth module'));
+    assert.equal(allowed.filter((e) => e.type === 'token').map((e) => e.value).join(''), 'delegation complete');
+  } finally {
+    close();
+  }
+});
+
+test('agents_ask approval gate applies uniformly, and satisfies PolicyGate for an agent whose profile needs workspace.write/shell', async () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    useProcessAgent(app, 'builder', () => 'builder made the change');
+
+    app.getProvider = () => ({
+      id: 'fake-builder-caller', label: 'Fake provider', supportsToolCalling: true,
+      async listModels() { return ['fake-model']; },
+      async *streamChat({ messages }) {
+        const toolResult = messages.find((m) => m.role === 'tool');
+        if (!toolResult) { yield { type: 'tool_call', id: 'call-1', name: 'agents_ask', arguments: { targetAgentId: 'builder', objective: 'implement the fix' } }; return; }
+        assert.ok(toolResult.content.includes('builder made the change'));
+        yield 'done';
+      },
+    });
+
+    const events = [];
+    for await (const event of app.chat({ content: 'have the builder implement the fix', providerId: 'fake-builder-caller', model: 'fake-model', allowToolWrites: true })) events.push(event);
+    const toolResultEvent = events.find((e) => e.type === 'tool-result');
+    assert.ok(toolResultEvent, 'the delegated run should complete once the outer approval gate is satisfied, without a separate PolicyGate rejection');
+    assert.ok(toolResultEvent.output.includes('builder made the change'));
+  } finally {
+    close();
+  }
+});

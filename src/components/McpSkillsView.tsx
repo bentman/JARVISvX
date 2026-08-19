@@ -538,7 +538,7 @@ export function McpSkillsView() {
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-500"
             >
               <option value="http">HTTP JSON-RPC Endpoint</option>
-              <option value="sse">Server-Sent Events (SSE)</option>
+              <option value="sse" disabled>Server-Sent Events (SSE) — not yet supported</option>
               <option value="stdio">Local Stdio Command Process</option>
             </select>
           </div>

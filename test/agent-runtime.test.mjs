@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 import { createJarvisApp } from '../lib/application.mjs';
 import { AgentRegistry } from '../lib/agents/registry.mjs';
@@ -352,6 +353,88 @@ test('API endpoints return agent list and execute agent run', async () => {
     assert.equal(run.agent_id, 'reviewer');
     assert.equal(run.status, 'completed');
     assert.match(run.result, /reviewer: Review code quality/);
+  } finally {
+    cleanup();
+  }
+});
+
+// --- agents_send: a real follow-up-message delivery, not a canned "delivered" ---
+
+test('AcpAdapter.send writes to a still-running interactive process, and fails honestly once it has exited', async () => {
+  const acp = new AcpAdapter();
+  const child = spawn(process.execPath, ['-e', "process.stdin.on('data', c => process.stdout.write('got:' + c))"], { stdio: ['pipe', 'pipe', 'ignore'] });
+  acp.runs.set('run-live', child);
+
+  let stdoutData = '';
+  child.stdout.on('data', (chunk) => { stdoutData += chunk.toString(); });
+
+  const sent = acp.send('run-live', 'hello agent');
+  assert.equal(sent.success, true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.ok(stdoutData.includes('got:hello agent'), 'the message should actually have reached the process');
+
+  child.kill();
+  await new Promise((resolve) => child.on('exit', resolve));
+
+  const afterExit = acp.send('run-live', 'too late');
+  assert.equal(afterExit.success, false);
+  assert.match(afterExit.error, /no active process/);
+
+  const unknown = acp.send('does-not-exist', 'msg');
+  assert.equal(unknown.success, false);
+  assert.match(unknown.error, /no active process/);
+});
+
+test('AcpAdapter.send fails honestly for a one-shot process with no interactive stdin', () => {
+  const acp = new AcpAdapter();
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  acp.runs.set('run-oneshot', child);
+
+  const result = acp.send('run-oneshot', 'hello');
+  assert.equal(result.success, false);
+  assert.match(result.error, /interactive mode/);
+
+  child.kill();
+});
+
+test('AgentRuntime.sendToRun delivers to a live run, and fails honestly for unknown, completed, or non-interactive runs', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initialize();
+  try {
+    const missing = app.agentRuntime.sendToRun('does-not-exist', 'hi');
+    assert.equal(missing.success, false);
+    assert.match(missing.error, /No agent run found/);
+
+    const processRun = app.db.createAgentRun({ agent_id: 'researcher', adapter: 'process', mode: 'solo', objective: 'test' });
+    const noSend = app.agentRuntime.sendToRun(processRun.id, 'hi');
+    assert.equal(noSend.success, false);
+    assert.match(noSend.error, /does not support sending/);
+
+    const doneRun = app.db.createAgentRun({ agent_id: 'architect', adapter: 'acp', mode: 'solo', objective: 'test' });
+    app.db.updateAgentRun(doneRun.id, { status: 'completed', result: 'ok' });
+    const tooLate = app.agentRuntime.sendToRun(doneRun.id, 'hi');
+    assert.equal(tooLate.success, false);
+    assert.match(tooLate.error, /already completed/);
+
+    const liveRun = app.db.createAgentRun({ agent_id: 'architect', adapter: 'acp', mode: 'solo', objective: 'test' });
+    const child = spawn(process.execPath, ['-e', "process.stdin.on('data', c => process.stdout.write('got:' + c))"], { stdio: ['pipe', 'pipe', 'ignore'] });
+    app.agentRuntime.adapters.get('acp').runs.set(liveRun.id, child);
+    const sent = app.agentRuntime.sendToRun(liveRun.id, 'follow up');
+    assert.equal(sent.success, true);
+    child.kill();
+  } finally {
+    cleanup();
+  }
+});
+
+test('AgentBusMcpServer.agents_send delegates to AgentRuntime.sendToRun instead of always reporting delivered', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initialize();
+  try {
+    const bus = new AgentBusMcpServer({ runtime: app.agentRuntime });
+    const missing = await bus.executeTool('agents_send', { runId: 'does-not-exist', message: 'hi' });
+    assert.equal(missing.success, false);
+    assert.match(missing.error, /No agent run found/);
   } finally {
     cleanup();
   }

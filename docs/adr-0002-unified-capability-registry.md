@@ -101,15 +101,46 @@ generically off the registry, so adding skills to the registry is
 sufficient. `anthropic` and `gemini` remain out of scope until they gain
 `supportsToolCalling`.
 
-Phase C: agent delegation becomes model-callable.
+**Phase C — agent delegation becomes model-callable.** `buildCapabilityRegistry`
+adds `agents_list` and `agents_ask` from the existing agent-bus tool surface
+(`lib/agents/agent-bus-mcp.mjs`, already served at `GET`/`POST
+/api/agent-bus/*` but until now reachable only from its own test file) to
+the same registry. `agents_list` only enumerates agent profiles, so it is
+read-only; `agents_ask` starts a real external CLI agent process
+(`lib/agents/registry.mjs`'s adapters — `claude`, `codex`, `copilot`, `cline`,
+`agy`) and is approval-required uniformly for every agent profile,
+regardless of that profile's own declared capabilities — starting an
+external process is a side effect in its own right, independent of whether
+the targeted agent itself needs `workspace.write`/`shell`. Once past that
+gate, execution passes `approved: true` and the turn's own `allowCloud`
+through to `executeAgentBusTool()` → `executeRun()`, so `PolicyGate`'s
+separate, per-agent privileged-capability check (`lib/agents/policy.mjs`)
+is satisfied by the same approval instead of asking a second time.
+`executeAgentBusTool()` (`lib/application.mjs`) gained a third `context`
+argument to carry `conversationId`/`allowCloud`/`approved` through to
+`agents_ask`, which previously always ran with `approved: false,
+allowCloud: false` regardless of caller. `agents_send` now delivers a real
+follow-up message to a still-running run (`AgentRuntime.sendToRun()`,
+`AcpAdapter.send()`) instead of unconditionally reporting success without
+doing anything, but stays out of this registry: `agents_ask` doesn't
+resolve until the run it started has finished, so the model never holds a
+runId that is still live — `agents_send` only has something real to do for
+a caller with live event-stream visibility into an in-flight run.
+The manual `@agent <id> <prompt>` entry point (`bin/jarvis.mjs`) and the
+GUI's Agent Runtime panel are unchanged — they remain separate, existing
+ways to start an agent run, alongside the new autonomous path.
 
 ## Consequences
 
 - Skill and MCP tool execution becomes reachable two ways — explicit
   command or autonomous call — against one registry instead of duplicated
   lookups per entry point.
-- Existing approval gates (cloud, agent) extend to cover model-initiated
-  tool calls rather than being bypassed by them.
+- Agent delegation becomes reachable autonomously in addition to the
+  existing manual `@agent` mention and Agent Runtime panel, without adding
+  a fourth approval mechanism alongside cloud, tool-write, and per-agent
+  `PolicyGate` approval.
+- Existing approval gates (cloud, tool-write, agent) extend to cover
+  model-initiated tool calls rather than being bypassed by them.
 - No local `llama.cpp`/Ollama endpoint is reachable from the environment
   implementing this — end-to-end verification against a live local model
   happens separately, outside this environment.
