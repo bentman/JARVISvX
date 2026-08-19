@@ -92,3 +92,36 @@ test('cancel can target the active conversation and turn id', async () => {
   }
 });
 
+test('<think> reasoning is streamed as its own event and excluded from the persisted message', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+  app.getProvider = () => ({
+    id: 'fake',
+    label: 'Fake provider',
+    async listModels() { return ['fake-model']; },
+    async *streamChat() {
+      yield '<think>weighing options';
+      yield '</think>The answer is 42.';
+    }
+  });
+
+  try {
+    const events = [];
+    for await (const event of app.chat({ content: 'hi', providerId: 'fake', model: 'fake-model' })) events.push(event);
+    const reasoningEvents = events.filter((event) => event.type === 'reasoning');
+    const tokenEvents = events.filter((event) => event.type === 'token');
+    assert.equal(reasoningEvents.map((event) => event.value).join(''), 'weighing options');
+    assert.equal(tokenEvents.map((event) => event.value).join(''), 'The answer is 42.');
+    assert.equal(events.at(-1).type, 'turn-complete');
+
+    const conversationId = events[0].conversationId;
+    const stored = db.messages(conversationId);
+    const assistantMessage = stored.find((message) => message.role === 'assistant');
+    assert.equal(assistantMessage.content, 'The answer is 42.');
+    assert.ok(!assistantMessage.content.includes('weighing options'));
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

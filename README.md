@@ -24,6 +24,17 @@ jarvis
 
 `jarvis` attaches to a running daemon or starts the Electron host if none is found.
 
+> **`npm link` fails with `EEXIST ... AppData\Roaming\npm\jarvis`?** That's npm's own
+> global command shim, not JARVIS data — it's written once per machine the first time
+> you link, and re-cloning or deleting the repo doesn't clear it, so a second `npm link`
+> (from this clone or any other) collides with the one already there. Fix once with:
+> ```powershell
+> npm uninstall -g jarvis
+> npm link
+> ```
+> (or `npm link --force` to overwrite it directly). This is unrelated to the app's own
+> storage — see [Storage Layout](#storage-layout) — which always stays inside the repo.
+
 ## Usage
 
 ### Desktop
@@ -92,7 +103,11 @@ All artifacts are kept inside the repository directory.
 | `data/electron-profile` | Durable Electron user profile |
 | `cache/` | Re-creatable runtime state (`cache/temp` = download staging) |
 
-No data is written to `%APPDATA%` or a home-directory folder.
+No data is written to `%APPDATA%` or a home-directory folder — this holds regardless of
+the working directory `jarvis` is launched from, since defaults are anchored to the
+install directory, not the current shell's cwd. (The one unrelated exception is npm's
+own global `jarvis` command shim under `%APPDATA%\npm`, created by `npm link` itself —
+see the Quick Start note above.)
 
 ## Providers
 
@@ -104,18 +119,78 @@ No data is written to `%APPDATA%` or a home-directory folder.
 
 ## Architecture
 
-```
-jarvis CLI  ─┐
-              ├─ SSE / HTTP ─── daemon (Express, port 3210)
-Electron     ─┘                   │
-host                           SQLite (sessions, memory, settings)
-                                  │
-                               providers.mjs (llama.cpp · Ollama · cloud)
-                               mcp-skills.mjs (tool calls)
-                               voice-runtime.mjs (wake · Whisper · Kokoro)
+```mermaid
+flowchart TB
+  subgraph Clients
+    CLI["jarvis CLI<br/>Ink TUI · bin/jarvis.mjs"]
+    Renderer["Electron renderer<br/>built React UI (dist/)"]
+  end
+
+  subgraph Electron["Electron main process"]
+    Main["main.mjs"]
+    TTS["Kokoro TTS<br/>worker_thread"]
+  end
+
+  subgraph Daemon["daemon.mjs — Express, loopback :3210, token-gated"]
+    API["api.mjs<br/>REST + SSE router<br/>(event-hub.mjs pub/sub)"]
+  end
+
+  subgraph App["application.mjs — core turn loop"]
+    Chat["chat()"]
+    Reason["reasoning-stream.mjs"]
+    Orch["orchestrator.mjs<br/>tag-based routing"]
+    Agents["agents/<br/>registry · coordinator · policy"]
+    Skills["mcp-skills.mjs<br/>tools & slash skills"]
+    Voice["voice-runtime.mjs"]
+    Memory["memory-engine.mjs"]
+  end
+
+  subgraph Providers["providers/ — registry, tag-routed"]
+    Reg["ProviderRegistry"]
+    Adapters["openai-compat · ollama<br/>anthropic · gemini · azure-openai"]
+  end
+
+  subgraph Storage
+    DB[("SQLite<br/>database.mjs")]
+    Models["models/<br/>wake · stt · tts bundles"]
+  end
+
+  CLI -- "spawns if absent" --> Daemon
+  Main -- "starts in-process<br/>or reconnects" --> Daemon
+  Main --> Renderer
+  Renderer -- "IPC: tts · voice · daemon" --> Main
+  Main --> TTS
+
+  CLI -- "HTTP + SSE /api/*" --> API
+  Renderer -- "HTTP + SSE /api/*" --> API
+
+  API --> Chat
+  API --> Agents
+  API --> Voice
+  API --> Skills
+  API --> Memory
+
+  Chat --> Reason
+  Chat --> Orch
+  Chat --> Skills
+  Chat -- "SSE events" --> API
+
+  Orch --> Reg
+  Reg --> Adapters
+  Reg --> DB
+  Chat --> DB
+  Voice --> Models
 ```
 
-**lib/** modules: `application`, `daemon`, `database`, `diagnostics`, `event-hub`, `mcp-skills`, `memory-engine`, `model-bootstrap`, `orchestrator`, `providers`, `tools`, `voice-runtime`, `voice-transcript`, `api`.
+The daemon is the only process that touches SQLite or the provider
+registry; both clients — the CLI and the Electron renderer — reach it
+exclusively over loopback HTTP/SSE, authenticated by a per-process token
+(`x-jarvis-token`). Electron's main process is a special case: it can start
+the daemon in-process instead of over HTTP, and separately runs a Kokoro
+TTS worker thread that the renderer drives directly over IPC (not through
+the daemon).
+
+**lib/** modules: `application`, `daemon`, `database`, `diagnostics`, `event-hub`, `mcp-skills`, `memory-engine`, `model-bootstrap`, `orchestrator`, `providers/` (provider registry, tag-based routing), `reasoning-stream`, `tools`, `voice-runtime`, `voice-transcript`, `api`.
 
 ## Safety
 
@@ -123,11 +198,12 @@ host                           SQLite (sessions, memory, settings)
 - JARVIS does not write workspace files, execute generated code, install skills, or retain raw microphone audio.
 - Cloud turns require explicit in-session approval (`/approve-cloud`).
 
+## Contributing
+
+Conventions for documentation, testing scope, git, and completion reporting
+live in [AGENTS.md](AGENTS.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-```powershell
-Start-Process npm.cmd -ArgumentList "run desktop" -WorkingDirectory (Get-Location)
-```
 

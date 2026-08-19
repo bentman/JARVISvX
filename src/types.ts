@@ -28,7 +28,11 @@ export interface ProviderTestResult {
   reason?: string;
 }
 
-export type Message = { id: string; role: 'user' | 'assistant' | 'system'; content: string; provider?: string; status: string; created_at: string };
+// `reasoning` is a client-only, in-memory field for live chain-of-thought display
+// (see the 'reasoning' SSE event in api.streamChat). It is never persisted by the
+// daemon and will not be present on messages loaded from conversation history —
+// by design, reasoning is viewable while streaming, not part of the logged transcript.
+export type Message = { id: string; role: 'user' | 'assistant' | 'system'; content: string; reasoning?: string; provider?: string; status: string; created_at: string };
 export type Conversation = { id: string; title: string; created_at: string; updated_at: string; messages?: Message[] };
 export type Root = { id: string; path: string; added_at: string };
 export type Diagnostics = { generatedAt: string; system: { platform: string; arch: string; release: string; cpu: { model: string; speed: number }[]; memory: { total: number; free: number } }; acceleration: { status: string; reason?: string; gpus?: { name: string; memoryBytes: number | null; memorySource: string; memoryReason?: string }[]; npu?: { status: string; name?: string; reason?: string } }; providers: Provider[] };

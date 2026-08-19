@@ -316,7 +316,7 @@ export function ProvidersView() {
         </div>
       )}
 
-      <SectionDivider label={`${records.length} provider${records.length !== 1 ? 's' : ''} configured`} />
+      <SectionDivider title="Configured Providers" count={records.length} />
 
       {loading && (
         <div className="flex items-center justify-center py-12 text-white/40 text-sm gap-2">
