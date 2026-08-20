@@ -126,7 +126,10 @@ export interface HardwareProfile {
 }
 
 export interface ModelConfig {
-  mode: 'auto' | 'local_only' | 'cloud_only';
+  // Also accepts 'provider:<id>' — pins routing to one specific provider
+  // (see routeTurn() in lib/orchestrator.mjs), used when a policy mode has
+  // more than one matching provider and the user picks a specific one.
+  mode: 'auto' | 'local_only' | 'cloud_only' | string;
   localEndpoint: string;
   selectedLocalModel: string;
   autoEscalateRules: {

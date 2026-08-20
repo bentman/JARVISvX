@@ -587,6 +587,19 @@
 .w-10 { width: 40px; } .h-10 { height: 40px; }
 .w-5-5 { width: 22px; } .h-5-5 { height: 22px; }
 
+/* Dot-suffixed variants (className="w-3.5 h-3.5", the literal Tailwind naming
+   most components actually use). A CSS class selector can't contain a bare
+   "." — it has to be escaped as "\." — so `.w-3.5 { }` in a stylesheet is not
+   the same selector as one written that way and silently never matches. Every
+   one of these had zero effect anywhere in the app until this rule existed;
+   the hyphenated versions above (`.w-3-5`) were the only working spelling.
+   Same size scale as the hyphenated set (and matches real Tailwind's 4px
+   step), just reachable by the class name components actually use. */
+.w-1\.5 { width: 6px; } .h-1\.5 { height: 6px; }
+.w-2\.5 { width: 10px; } .h-2\.5 { height: 10px; }
+.w-3\.5 { width: 14px; } .h-3\.5 { height: 14px; }
+.w-5\.5 { width: 22px; } .h-5\.5 { height: 22px; }
+
 /* ---- Display ---- */
 .block { display: block; }
 .inline-block { display: inline-block; }
@@ -763,6 +776,14 @@
 .transition-all { transition: all var(--transition-fast); }
 .transition-colors { transition: color var(--transition-fast); }
 .transition-transform { transition: transform var(--transition-fast); }
+
+/* ---- Animation ---- */
+/* Every Loader2/RefreshCw "in progress" icon across the app is wired up with
+   this class (ProvidersView, MemoryCenterView, McpSkillsView, ...) but it had
+   no matching rule anywhere, so loading states rendered as a static icon
+   instead of spinning. */
+@keyframes spin { to { transform: rotate(360deg); } }
+.animate-spin { animation: spin 1s linear infinite; }
 
 /* ==========================================================================
    Panel-Scoped Color Utilities

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
-import { ModelConfig } from '../types';
+import { ModelConfig, ProviderRecord } from '../types';
 import {
   Cpu,
   Server,
@@ -19,23 +19,26 @@ import { useToast } from '../hooks/useToast';
 
 const mergeModels = (...groups: string[][]) => Array.from(new Set(groups.flat().filter(Boolean)));
 
-// Probes every registered local provider (Ollama-protocol, or openai-compat
-// tagged 'local' — i.e. llama.cpp/llama.app-style endpoints) for its model
-// list, by their real registry ids. Provider ids are opaque generated
-// strings (see docs/conventions-ids-and-crud.md); there is no fixed
-// 'llamacpp'/'ollama' id to probe directly.
-async function discoverLocalProviderModels(): Promise<string[]> {
-  try {
-    const registry = await api.providers();
-    const localProviders = registry.filter((p) => p.protocol === 'ollama' || (p.protocol === 'openai-compat' && p.tags?.includes('local')));
-    const results = await Promise.all(localProviders.map((p) => api.models(p.id).then((res) => res.models).catch(() => [])));
-    return mergeModels(...results);
-  } catch {
-    return [];
-  }
+// A provider counts as "local" for this panel's purposes if it's Ollama-protocol,
+// or openai-compat tagged 'local' (i.e. llama.cpp/llama.app-style endpoints).
+const isLocalProvider = (p: ProviderRecord) => p.protocol === 'ollama' || (p.protocol === 'openai-compat' && p.tags?.includes('local'));
+
+async function discoverModelsFor(providers: ProviderRecord[]): Promise<string[]> {
+  const results = await Promise.all(providers.map((p) => api.models(p.id).then((res) => res.models).catch(() => [])));
+  return mergeModels(...results);
 }
 
-export function ModelOrchestrationView() {
+export function ModelOrchestrationView({
+  onProvidersChanged,
+  onOpenProviders
+}: {
+  // Called after any change here that other panels (Settings' Active
+  // Provider/Model dropdowns, the Providers "Active" badge) also display, so
+  // every surface reflects the same single result instead of going stale
+  // until an unrelated refresh happens to fire.
+  onProvidersChanged?: () => void;
+  onOpenProviders?: () => void;
+} = {}) {
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
     mode: 'auto',
     localEndpoint: 'http://127.0.0.1:11434/v1',
@@ -47,7 +50,6 @@ export function ModelOrchestrationView() {
     }
   });
 
-  const [endpointInput, setEndpointInput] = useState('http://127.0.0.1:11434/v1');
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
@@ -56,16 +58,30 @@ export function ModelOrchestrationView() {
   // The real active provider id, from the same authoritative source every
   // other panel reads — not a hardcoded protocol name like 'llamacpp'.
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
+  // Real installed providers, split by the same 'local'/'cloud' tags the
+  // Providers panel and routeTurn() both use — backs the endpoint selector
+  // below and the "MAX POWER" card, instead of a free-typed URL or a
+  // hardcoded "Gemini" label.
+  const [localProviders, setLocalProviders] = useState<ProviderRecord[]>([]);
+  const [cloudProviders, setCloudProviders] = useState<ProviderRecord[]>([]);
+  const [selectedLocalProviderId, setSelectedLocalProviderId] = useState<string>('');
 
   const loadOrchestrationData = async () => {
     try {
-      const [data, effective] = await Promise.all([api.orchestration(), api.effectiveSettings()]);
+      const [data, effective, registry] = await Promise.all([api.orchestration(), api.effectiveSettings(), api.providers()]);
       setModelConfig(data.settings);
-      setEndpointInput(data.settings.localEndpoint);
       setActiveProviderId(effective.activeProvider);
+
+      const locals = registry.filter(isLocalProvider);
+      const clouds = registry.filter((p) => p.tags?.includes('cloud'));
+      setLocalProviders(locals);
+      setCloudProviders(clouds);
+      const matchedLocal = locals.find((p) => p.base_url === data.settings.localEndpoint) || locals[0] || null;
+      setSelectedLocalProviderId(matchedLocal?.id || '');
+
       const discovered = await Promise.all([
-        api.pingLocalEndpoint(data.settings.localEndpoint).then((res) => res.models).catch(() => []),
-        discoverLocalProviderModels(),
+        matchedLocal ? api.pingLocalEndpoint(matchedLocal.base_url).then((res) => res.models).catch(() => []) : Promise.resolve([]),
+        discoverModelsFor(locals),
       ]);
       const models = mergeModels(...discovered);
       if (models.length > 0) {
@@ -86,44 +102,68 @@ export function ModelOrchestrationView() {
       const updated = await api.updateOrchestration(newConfig);
       setModelConfig(updated);
       toast.success('Orchestration settings saved');
+      onProvidersChanged?.();
     } catch (err: any) {
       setError(`Failed to save settings: ${err.message}`);
     }
   };
 
+  // Pins routing to one specific cloud provider (routeTurn()'s 'provider:<id>'
+  // pin — see lib/orchestrator.mjs) when more than one cloud provider is
+  // configured and ambiguous priority-only selection isn't precise enough.
+  // An empty id falls back to plain 'cloud_only' (highest-priority cloud provider).
+  const handlePinCloudProvider = (id: string) => handleUpdateConfig({ ...modelConfig, mode: id ? `provider:${id}` : 'cloud_only' });
+
+  const handleSelectLocalProvider = (id: string) => {
+    setSelectedLocalProviderId(id);
+    const provider = localProviders.find((p) => p.id === id);
+    if (provider) void handleUpdateConfig({ ...modelConfig, localEndpoint: provider.base_url });
+  };
+
   const handleSelectModel = async (modelName: string) => {
-    if (!activeProviderId) {
+    // Targets whichever local provider is selected in the endpoint config
+    // above, falling back to the overall active provider if none is picked
+    // yet — the same provider id Settings' Active Model dropdown writes to,
+    // so both surfaces always agree on one result.
+    const targetProviderId = selectedLocalProviderId || activeProviderId;
+    if (!targetProviderId) {
       setError('No active provider — add or enable a provider in Providers first.');
       return;
     }
     const nextConfig = { ...modelConfig, selectedLocalModel: modelName };
     setModelConfig(nextConfig);
     try {
-      await api.setModel(activeProviderId, modelName);
+      await api.setModel(targetProviderId, modelName);
       await api.updateOrchestration(nextConfig);
       toast.success(`Active model set to ${modelName}`);
+      onProvidersChanged?.();
     } catch (err: any) {
       setError(`Failed to set active model: ${err.message}`);
     }
   };
 
   const handleTestEndpoint = async () => {
+    const provider = localProviders.find((p) => p.id === selectedLocalProviderId);
+    if (!provider) {
+      setError('Select a local provider below first.');
+      return;
+    }
     setIsTesting(true);
     setTestResult(null);
     try {
-      const result = await api.pingLocalEndpoint(endpointInput);
-      const providerModels = await discoverLocalProviderModels();
+      const result = await api.pingLocalEndpoint(provider.base_url);
+      const providerModels = await discoverModelsFor(localProviders);
       const models = mergeModels(result.models || [], providerModels);
       if (models.length > 0) {
         setDiscoveredModels(models);
       }
-      setTestResult(`Success! Endpoint reachable at ${result.endpoint} (${result.latencyMs}ms latency). Discovered ${models.length} model weights.`);
+      setTestResult(`Success! ${provider.name} reachable at ${result.endpoint} (${result.latencyMs}ms latency). Discovered ${models.length} model weights.`);
       await handleUpdateConfig({
         ...modelConfig,
-        localEndpoint: endpointInput
+        localEndpoint: provider.base_url
       });
     } catch (err: any) {
-      setTestResult(`Endpoint ping complete: Local server operational at ${endpointInput}`);
+      setTestResult(`Endpoint ping failed for ${provider.name} at ${provider.base_url}: ${err.message}`);
     } finally {
       setIsTesting(false);
     }
@@ -135,6 +175,13 @@ export function ModelOrchestrationView() {
     { name: 'Qwen-2.5-7B-Instruct', size: '4.5 GB', vram: '6.8 GB', speed: '28.0 t/s', recommended: false },
     { name: 'Phi-3.5-mini-instruct', size: '2.3 GB', vram: '3.5 GB', speed: '38.2 t/s', recommended: false }
   ];
+
+  // A pin ('provider:<id>') only counts as "cloud mode" if it actually
+  // points at a cloud-tagged provider — a local pin shouldn't light up this card.
+  const pinnedCloudProviderId = typeof modelConfig.mode === 'string' && modelConfig.mode.startsWith('provider:')
+    ? modelConfig.mode.slice('provider:'.length)
+    : '';
+  const isCloudModeActive = modelConfig.mode === 'cloud_only' || cloudProviders.some((p) => p.id === pinnedCloudProviderId);
 
   return (
     <div className="panel-surface panel-content">
@@ -218,16 +265,17 @@ export function ModelOrchestrationView() {
             </p>
           </div>
 
-          {/* CLOUD ONLY Card */}
+          {/* CLOUD ONLY Card — reflects whatever cloud provider(s) are actually
+              configured in Providers, instead of a hardcoded "Gemini". */}
           <div
-            onClick={() => handleUpdateConfig({ ...modelConfig, mode: 'cloud_only' })}
-            className={`cursor-pointer p-4 rounded-xl border transition-all ${
-              modelConfig.mode === 'cloud_only'
+            onClick={() => { if (cloudProviders.length <= 1) void handleUpdateConfig({ ...modelConfig, mode: 'cloud_only' }); }}
+            className={`p-4 rounded-xl border transition-all ${cloudProviders.length ? 'cursor-pointer' : ''} ${
+              isCloudModeActive
                 ? 'border-purple-400 shadow-xl'
                 : 'border-slate-800 hover:border-slate-700'
             }`}
             style={
-              modelConfig.mode === 'cloud_only'
+              isCloudModeActive
                 ? { backgroundColor: '#0a1825' }
                 : { backgroundColor: '#06111a' }
             }
@@ -236,12 +284,39 @@ export function ModelOrchestrationView() {
               <span className="text-xs font-mono font-bold text-purple-400 bg-purple-subtle px-3 py-1 rounded border border-purple">
                 MAX POWER
               </span>
-              {modelConfig.mode === 'cloud_only' && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
+              {isCloudModeActive && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
             </div>
-            <h4 className="text-sm font-bold text-slate-100">Cloud Gemini Only</h4>
+            <h4 className="text-sm font-bold text-slate-100">
+              {cloudProviders.length === 0 ? 'Cloud Provider — Not Configured'
+                : cloudProviders.length === 1 ? `Cloud ${cloudProviders[0].name} Only`
+                : 'Cloud Provider Only'}
+            </h4>
             <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Directly routes all queries to Gemini Cloud API for maximum intelligence, speed, and search grounding (requires cloud approval).
+              {cloudProviders.length === 0
+                ? 'No cloud provider is configured yet. Add one to unlock maximum reasoning power for complex queries.'
+                : 'Directly routes all queries to your configured cloud provider for maximum intelligence, speed, and reasoning (requires cloud approval).'}
             </p>
+            {cloudProviders.length === 0 && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onOpenProviders?.(); }}
+                className="text-caption text-accent mt-2"
+                style={{ textDecoration: 'underline', background: 'none', border: 0, padding: 0 }}
+              >
+                Add a cloud provider in Providers →
+              </button>
+            )}
+            {cloudProviders.length > 1 && (
+              <select
+                value={pinnedCloudProviderId}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => { e.stopPropagation(); void handlePinCloudProvider(e.target.value); }}
+                className="form-input w-full mt-2"
+              >
+                <option value="">Use highest-priority cloud provider</option>
+                {cloudProviders.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
           </div>
         </div>
       </PanelCard>
@@ -255,18 +330,32 @@ export function ModelOrchestrationView() {
 
         <div className="panel-grid three items-end">
           <div className="span-2 space-y-2">
-            <label className="form-label">Local Ollama / llama.cpp Endpoint URL</label>
-            <input
-              type="text"
-              value={endpointInput}
-              onChange={(e) => setEndpointInput(e.target.value)}
-              placeholder="http://127.0.0.1:11434/v1"
-              className="form-input w-full"
-            />
+            <label className="form-label">Local Ollama / llama.cpp Endpoint</label>
+            {localProviders.length ? (
+              <select
+                value={selectedLocalProviderId}
+                onChange={(e) => handleSelectLocalProvider(e.target.value)}
+                className="form-input w-full"
+              >
+                {localProviders.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.base_url}</option>)}
+              </select>
+            ) : (
+              <div className="text-caption text-tertiary">
+                No local provider is configured yet.{' '}
+                <button
+                  type="button"
+                  onClick={onOpenProviders}
+                  className="text-accent"
+                  style={{ textDecoration: 'underline', background: 'none', border: 0, padding: 0 }}
+                >
+                  Add one in Providers →
+                </button>
+              </div>
+            )}
           </div>
           <button
             onClick={handleTestEndpoint}
-            disabled={isTesting}
+            disabled={isTesting || !localProviders.length}
             className="btn btn-primary btn-sm"
           >
             {isTesting ? (

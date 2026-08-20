@@ -1,4 +1,4 @@
-import type { AgentProfile, AgentRun, Conversation, Diagnostics, EffectiveSettings, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, ProviderRecord, ProviderTestResult, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
+import type { AgentProfile, AgentRun, Conversation, Diagnostics, EffectiveSettings, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, ProviderProtocol, ProviderRecord, ProviderTestResult, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
 
 declare global {
   interface Window {
@@ -70,6 +70,8 @@ export const api = {
   deleteProvider: (id: string) => json<{ removed: boolean }>(`/api/provider-registry/${id}`, { method: 'DELETE' }),
   testProvider: (id: string) => json<ProviderTestResult>(`/api/provider-registry/${id}/test`, { method: 'POST', body: '{}' }),
   toggleProvider: (id: string) => json<ProviderRecord>(`/api/provider-registry/${id}/toggle`, { method: 'POST', body: '{}' }),
+  probeProviderModels: (data: { protocol: ProviderProtocol; baseUrl: string; apiKey?: string }) =>
+    json<{ available: boolean; models: string[]; reason?: string }>('/api/provider-registry/probe', { method: 'POST', body: JSON.stringify(data) }),
   diagnostics: () => json<Diagnostics>('/api/diagnostics'),
   voice: () => json<VoiceRuntimeStatus>('/api/voice'),
   bootstrapVoice: (id: string) => json(`/api/voice/bootstrap/${id}`, { method: 'POST', body: '{}' }),

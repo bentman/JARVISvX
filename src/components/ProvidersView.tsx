@@ -4,6 +4,8 @@ import type { ProviderProtocol, ProviderRecord, ProviderTag, ProviderTestResult 
 import { PanelCard } from './ui/PanelCard';
 import { PanelHeader } from './ui/PanelHeader';
 import { SectionDivider } from './ui/SectionDivider';
+import { StatusBadge } from './ui/StatusBadge';
+import type { BadgeStatus } from './ui/StatusBadge';
 import { CheckCircle2, Loader2, Plus, RefreshCw, Server, Trash2, X, Zap } from 'lucide-react';
 
 const ALL_TAGS: ProviderTag[] = ['local', 'cloud', 'fast', 'reasoning', 'vision', 'coding'];
@@ -16,12 +18,14 @@ const PROTOCOL_LABELS: Record<ProviderProtocol, string> = {
   'gemini': 'Gemini',
 };
 
-const PROTOCOL_COLORS: Record<ProviderProtocol, string> = {
-  'openai-compat': 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  'ollama':        'bg-purple-500/20 text-purple-300 border-purple-500/30',
-  'azure-openai':  'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  'anthropic':     'bg-orange-500/20 text-orange-300 border-orange-500/30',
-  'gemini':        'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+// Maps each protocol to one of the real, defined badge-* color variants
+// (see src/styles/panels.css) so every protocol reads as visually distinct.
+const PROTOCOL_BADGE: Record<ProviderProtocol, BadgeStatus> = {
+  'openai-compat': 'emerald',
+  'ollama': 'purple',
+  'azure-openai': 'cyan',
+  'anthropic': 'amber',
+  'gemini': 'danger',
 };
 
 const PROTOCOL_HINTS: Record<ProviderProtocol, string> = {
@@ -67,6 +71,60 @@ function formFromRecord(r: ProviderRecord): FormState {
   return { name: r.name, protocol: r.protocol, base_url: r.base_url, model: r.model, api_key: '', tags: [...r.tags], priority: r.priority };
 }
 
+// Real live probe of the form's current protocol/base URL/API key — either a
+// dropdown of the server's actual reported models, or an honest connection
+// error. Replaces the old free-text guess at a model name.
+type ProbeState = { status: 'idle' | 'loading' | 'ok' | 'error'; models: string[]; reason?: string };
+
+function ModelField({ form, setForm }: { form: FormState; setForm: React.Dispatch<React.SetStateAction<FormState>> }) {
+  const [probe, setProbe] = useState<ProbeState>({ status: 'idle', models: [] });
+
+  useEffect(() => {
+    if (!form.base_url.trim()) { setProbe({ status: 'idle', models: [] }); return; }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      setProbe((p) => ({ ...p, status: 'loading' }));
+      try {
+        const result = await api.probeProviderModels({ protocol: form.protocol, baseUrl: form.base_url, apiKey: form.api_key || undefined });
+        if (cancelled) return;
+        setProbe(result.available ? { status: 'ok', models: result.models } : { status: 'error', models: [], reason: result.reason });
+      } catch (err: any) {
+        if (!cancelled) setProbe({ status: 'error', models: [], reason: err.message });
+      }
+    }, 600);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [form.protocol, form.base_url, form.api_key]);
+
+  const options = form.model && !probe.models.includes(form.model) ? [form.model, ...probe.models] : probe.models;
+  const showDropdown = probe.status === 'ok' && options.length > 0;
+
+  return (
+    <div className="space-y-2">
+      <label className="form-label">Default Model</label>
+      {showDropdown ? (
+        <select value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} className="form-input w-full">
+          <option value="">Select a model…</option>
+          {options.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      ) : (
+        <input
+          value={form.model}
+          onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+          placeholder={probe.status === 'loading' ? 'Checking server for models…' : 'e.g. llama3.2, gpt-4o, claude-sonnet-4-5'}
+          className="form-input w-full"
+        />
+      )}
+      {probe.status === 'loading' && (
+        <p className="text-caption text-tertiary" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Loader2 className="w-3 h-3 animate-spin" /> Checking {form.base_url} for available models…
+        </p>
+      )}
+      {probe.status === 'error' && <p className="text-caption text-danger">Error — cannot connect to server ({probe.reason})</p>}
+      {probe.status === 'ok' && !probe.models.length && <p className="text-caption text-tertiary">Connected, but the server reported no models — enter one manually.</p>}
+    </div>
+  );
+}
+
 interface ProviderFormProps {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
@@ -75,6 +133,25 @@ interface ProviderFormProps {
   saving: boolean;
   isEdit?: boolean;
   apiKeySet?: boolean;
+}
+
+function TagPill({ tag, selected, onClick }: { tag: ProviderTag; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-caption font-mono transition-all rounded-md"
+      style={{
+        padding: '4px 10px',
+        border: `1px solid ${selected ? 'var(--cyan-400)' : 'var(--border-primary)'}`,
+        background: selected ? 'var(--cyan-400)' : 'var(--surface-elevated)',
+        color: selected ? 'var(--surface-panel)' : 'var(--text-tertiary)',
+        fontWeight: selected ? 700 : 500,
+      }}
+    >
+      {tag}
+    </button>
+  );
 }
 
 function ProviderForm({ form, setForm, onSave, onCancel, saving, isEdit, apiKeySet }: ProviderFormProps) {
@@ -90,64 +167,55 @@ function ProviderForm({ form, setForm, onSave, onCancel, saving, isEdit, apiKeyS
     setForm(f => ({ ...f, tags: f.tags.includes(tag) ? f.tags.filter(t => t !== tag) : [...f.tags, tag] }));
 
   return (
-    <div className="space-y-2.5 mt-3 pt-3 border-t border-white/10">
-      <div>
-        <label className="block text-[10px] text-white/40 mb-1 uppercase tracking-wider">Name</label>
-        <input value={form.name} onChange={set('name')} placeholder="My Provider"
-          className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white/30" />
+    <div className="panel-content compact border-t border-slate-800 pt-3">
+      <div className="space-y-2">
+        <label className="form-label">Name</label>
+        <input value={form.name} onChange={set('name')} placeholder="My Provider" className="form-input w-full" />
       </div>
-      <div>
-        <label className="block text-[10px] text-white/40 mb-1 uppercase tracking-wider">Protocol</label>
-        <select value={form.protocol} onChange={handleProtocolChange}
-          className="w-full bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-white/30">
+      <div className="space-y-2">
+        <label className="form-label">Protocol</label>
+        <select value={form.protocol} onChange={handleProtocolChange} className="form-input w-full">
           {Object.entries(PROTOCOL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <p className="text-[10px] text-white/30 mt-1">{PROTOCOL_HINTS[form.protocol]}</p>
+        <p className="text-caption text-tertiary">{PROTOCOL_HINTS[form.protocol]}</p>
       </div>
-      <div>
-        <label className="block text-[10px] text-white/40 mb-1 uppercase tracking-wider">Base URL</label>
-        <input value={form.base_url} onChange={set('base_url')} placeholder={DEFAULT_URLS[form.protocol]}
-          className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs font-mono text-white placeholder-white/30 focus:outline-none focus:border-white/30" />
+      <div className="space-y-2">
+        <label className="form-label">Base URL</label>
+        <input value={form.base_url} onChange={set('base_url')} placeholder={DEFAULT_URLS[form.protocol]} className="form-input w-full font-mono" />
       </div>
-      <div>
-        <label className="block text-[10px] text-white/40 mb-1 uppercase tracking-wider">Default Model</label>
-        <input value={form.model} onChange={set('model')} placeholder="e.g. llama3.2, gpt-4o, claude-sonnet-4-5"
-          className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white/30" />
-      </div>
-      <div>
-        <label className="block text-[10px] text-white/40 mb-1 uppercase tracking-wider">API Key</label>
+
+      <ModelField form={form} setForm={setForm} />
+
+      <div className="space-y-2">
+        <label className="form-label">API Key</label>
         <input type="password" value={form.api_key} onChange={set('api_key')} autoComplete="new-password"
           placeholder={apiKeySet ? '●●●●●● (leave blank to keep existing)' : 'Enter API key (if required)'}
-          className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white/30" />
+          className="form-input w-full" />
       </div>
-      <div>
-        <label className="block text-[10px] text-white/40 mb-1 uppercase tracking-wider">Tags</label>
-        <div className="flex flex-wrap gap-1.5">
-          {ALL_TAGS.map(tag => (
-            <button key={tag} type="button" onClick={() => toggleTag(tag)}
-              className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${form.tags.includes(tag) ? 'bg-white/20 border-white/30 text-white' : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'}`}>
-              {tag}
-            </button>
+      <div className="space-y-2">
+        <label className="form-label">Tags</label>
+        <div className="flex flex-wrap gap-2">
+          {ALL_TAGS.map((tag) => (
+            <TagPill key={tag} tag={tag} selected={form.tags.includes(tag)} onClick={() => toggleTag(tag)} />
           ))}
         </div>
       </div>
-      <div>
-        <label className="block text-[10px] text-white/40 mb-1 uppercase tracking-wider">
-          Priority <span className="text-white/20 normal-case">(lower = higher priority)</span>
+      <div className="space-y-2">
+        <label className="form-label">
+          Priority <span className="text-tertiary" style={{ textTransform: 'none' }}>(lower = higher priority)</span>
         </label>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <input type="range" min={1} max={100} value={form.priority}
-            onChange={e => setForm(f => ({ ...f, priority: Number(e.target.value) }))}
-            className="flex-1 accent-slate-400" />
-          <span className="text-xs text-white/60 w-6 text-right">{form.priority}</span>
+            onChange={(e) => setForm(f => ({ ...f, priority: Number(e.target.value) }))}
+            className="flex-1" />
+          <span className="text-xs text-secondary font-mono" style={{ width: 28, textAlign: 'right' }}>{form.priority}</span>
         </div>
       </div>
       <div className="flex gap-2 pt-1">
-        <button onClick={onSave} disabled={saving || !form.name.trim() || !form.base_url.trim()}
-          className="flex-1 py-1.5 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-medium transition-colors disabled:opacity-40 flex items-center justify-center gap-1">
-          {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} Save
+        <button onClick={onSave} disabled={saving || !form.name.trim() || !form.base_url.trim()} className="btn btn-sm btn-primary flex-1">
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Save
         </button>
-        <button onClick={onCancel} className="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-white/60 text-xs transition-colors">Cancel</button>
+        <button onClick={onCancel} className="btn btn-sm btn-secondary">Cancel</button>
       </div>
     </div>
   );
@@ -199,75 +267,60 @@ function ProviderCard({ record, isActive, onUpdated, onDeleted }: ProviderCardPr
     finally { setSaving(false); }
   };
 
-  const protocolColor = PROTOCOL_COLORS[record.protocol] || 'bg-slate-500/20 text-slate-300 border-slate-500/30';
-
   return (
     <PanelCard>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${protocolColor}`}>
-              {PROTOCOL_LABELS[record.protocol]}
-            </span>
-            {isActive && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                title="This provider will handle the next message">
-                Active
-              </span>
-            )}
-            <span className={`w-1.5 h-1.5 rounded-full ${record.enabled ? 'bg-emerald-400' : 'bg-slate-500'}`}
-              title={record.enabled ? 'Enabled' : 'Disabled'} />
-            {testResult && <span className={`w-1.5 h-1.5 rounded-full ${testResult.available ? 'bg-emerald-400' : 'bg-red-400'}`}
-              title={testResult.available ? 'Connected' : 'Unavailable'} />}
+            <StatusBadge status={PROTOCOL_BADGE[record.protocol] || 'info'}>{PROTOCOL_LABELS[record.protocol]}</StatusBadge>
+            {isActive && <span title="This provider will handle the next message"><StatusBadge status="success">Active</StatusBadge></span>}
+            <StatusBadge status={record.enabled ? 'online' : 'offline'}>{record.enabled ? 'Enabled' : 'Disabled'}</StatusBadge>
+            {testResult && <StatusBadge status={testResult.available ? 'online' : 'offline'}>{testResult.available ? 'Connected' : 'Unavailable'}</StatusBadge>}
           </div>
-          <h3 className="text-sm font-semibold text-white truncate">{record.name}</h3>
-          <p className="text-[11px] font-mono text-white/35 truncate mt-0.5">{record.base_url}</p>
-          {record.model && <p className="text-[11px] text-white/45 mt-0.5">Model: <span className="text-white/60">{record.model}</span></p>}
+          <h3 className="text-small font-semibold text-primary truncate">{record.name}</h3>
+          <p className="text-caption font-mono text-tertiary truncate mt-1">{record.base_url}</p>
+          {record.model && <p className="text-caption text-tertiary mt-1">Model: <span className="text-secondary">{record.model}</span></p>}
           <div className="flex flex-wrap gap-1 mt-2">
             {record.tags.map(tag => (
-              <span key={tag} className="px-1.5 py-0.5 rounded text-[10px] bg-white/10 text-white/50 border border-white/8">{tag}</span>
+              <span key={tag} className="text-caption text-tertiary" style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--surface-elevated)', border: '1px solid var(--border-primary)' }}>{tag}</span>
             ))}
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-white/25 border border-white/5">p{record.priority}</span>
-            {record.api_key_set && <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-white/25 border border-white/5">🔑</span>}
+            <span className="text-caption text-muted" style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--surface-elevated)', border: '1px solid var(--border-primary)' }}>p{record.priority}</span>
+            {record.api_key_set && <span className="text-caption text-muted" style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--surface-elevated)', border: '1px solid var(--border-primary)' }}>Key set</span>}
           </div>
         </div>
 
-        <div className="flex flex-col gap-1.5 flex-shrink-0 min-w-[52px]">
-          <button onClick={() => { setEditing(!editing); setForm(formFromRecord(record)); setError(''); }}
-            className="text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white/70 transition-colors">
+        <div className="flex flex-col gap-2 flex-shrink-0" style={{ minWidth: 56 }}>
+          <button onClick={() => { setEditing(!editing); setForm(formFromRecord(record)); setError(''); }} className="btn btn-sm btn-secondary">
             {editing ? 'Cancel' : 'Edit'}
           </button>
-          <button onClick={handleToggle}
-            className={`text-[11px] px-2 py-1 rounded transition-colors ${record.enabled ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300' : 'bg-white/8 hover:bg-white/15 text-white/40'}`}>
+          <button onClick={handleToggle} className="btn btn-sm btn-secondary" style={record.enabled ? { color: 'var(--emerald-400)' } : undefined}>
             {record.enabled ? 'On' : 'Off'}
           </button>
-          <button onClick={handleTest} disabled={testLoading}
-            className="text-[11px] px-2 py-1 rounded bg-white/8 hover:bg-white/15 text-white/60 transition-colors flex items-center justify-center gap-1">
-            {testLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+          <button onClick={handleTest} disabled={testLoading} className="btn btn-sm btn-secondary">
+            {testLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
           </button>
-          <button onClick={handleDelete} onMouseLeave={() => setArmDelete(false)}
-            className={`text-[11px] px-2 py-1 rounded transition-colors flex items-center justify-center ${armDelete ? 'bg-red-500/30 text-red-300 hover:bg-red-500/50' : 'bg-white/5 hover:bg-red-500/15 text-white/25 hover:text-red-300'}`}>
-            {armDelete ? '✓' : <Trash2 className="w-3 h-3" />}
+          <button onClick={handleDelete} onMouseLeave={() => setArmDelete(false)} className={`btn btn-sm ${armDelete ? 'btn-rose' : 'btn-secondary'}`}>
+            {armDelete ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
 
       {testResult && (
-        <div className={`mt-2 p-2 rounded text-[11px] ${testResult.available ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
+        <p className={`text-caption ${testResult.available ? 'text-success' : 'text-danger'}`}>
           {testResult.available
             ? `✓ ${testResult.latencyMs}ms · ${testResult.models.slice(0, 4).join(', ')}${testResult.models.length > 4 ? ` +${testResult.models.length - 4}` : ''}`
             : `✗ ${testResult.reason}`}
-        </div>
+        </p>
       )}
-      {testError && <div className="mt-2 p-2 rounded text-[11px] bg-red-500/10 text-red-300">✗ {testError}</div>}
-      {error && <div className="mt-2 p-2 rounded text-[11px] bg-red-500/10 text-red-300">{error}</div>}
+      {testError && <p className="text-caption text-danger">✗ {testError}</p>}
+      {error && <p className="text-caption text-danger">{error}</p>}
 
       {editing && <ProviderForm form={form} setForm={setForm} onSave={handleSave} onCancel={() => setEditing(false)} saving={saving} isEdit apiKeySet={record.api_key_set} />}
     </PanelCard>
   );
 }
 
-export function ProvidersView() {
+export function ProvidersView({ onProvidersChanged }: { onProvidersChanged?: () => void } = {}) {
   const [records, setRecords] = useState<ProviderRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -302,57 +355,61 @@ export function ProvidersView() {
       if (addForm.api_key) payload.api_key = addForm.api_key;
       const created = await api.addProvider(payload);
       setRecords(rs => [...rs, created]); setAdding(false); setAddForm(emptyForm());
+      void refreshActiveProvider();
+      onProvidersChanged?.();
     } catch (err: any) { setAddError(err.message); }
     finally { setAddSaving(false); }
   };
 
   return (
-    <div className="panel-content">
-      <PanelHeader icon={<Server />} title="Providers" subtitle="Manage LLM provider connections & routing" />
+    <div className="panel-surface panel-content">
+      <PanelHeader icon={<Server className="w-5 h-5 text-cyan-400" />} title="Providers" subtitle="Manage LLM provider connections & routing" />
 
-      <div className="panel-actions">
-        <button onClick={() => { setAdding(!adding); setAddForm(emptyForm()); setAddError(''); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors">
+      <div className="flex items-center gap-2">
+        <button onClick={() => { setAdding(!adding); setAddForm(emptyForm()); setAddError(''); }} className="btn btn-sm btn-primary">
           {adding ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
           {adding ? 'Cancel' : 'Add Provider'}
         </button>
-        <button onClick={load} className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 transition-colors" title="Refresh">
+        <button onClick={load} className="btn-icon" title="Refresh">
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {error && <div className="mx-4 mb-3 p-2 rounded-lg bg-red-500/10 text-red-300 text-xs">{error}</div>}
+      {error && (
+        <PanelCard padding="compact" className="text-danger bg-danger-subtle border border-rose">
+          <span className="text-xs font-mono">{error}</span>
+        </PanelCard>
+      )}
 
       {adding && (
-        <div className="mx-4 mb-4">
-          <PanelCard>
-            <h3 className="text-sm font-semibold text-white mb-0.5">New Provider</h3>
-            {addError && <div className="mb-2 p-2 rounded text-xs bg-red-500/10 text-red-300">{addError}</div>}
-            <ProviderForm form={addForm} setForm={setAddForm} onSave={handleAdd} onCancel={() => setAdding(false)} saving={addSaving} />
-          </PanelCard>
-        </div>
+        <PanelCard>
+          <SectionDivider title="New Provider" />
+          {addError && <p className="text-caption text-danger">{addError}</p>}
+          <ProviderForm form={addForm} setForm={setAddForm} onSave={handleAdd} onCancel={() => setAdding(false)} saving={addSaving} />
+        </PanelCard>
       )}
 
       <SectionDivider title="Configured Providers" count={records.length} />
 
       {loading && (
-        <div className="flex items-center justify-center py-12 text-white/40 text-sm gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
-        </div>
+        <PanelCard hover={false}>
+          <p className="text-secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+          </p>
+        </PanelCard>
       )}
       {!loading && records.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 text-white/30 text-sm gap-2">
-          <Server className="w-8 h-8 opacity-30" />
-          <span>No providers configured.</span>
-          <span className="text-xs text-white/20">Click &quot;Add Provider&quot; to get started.</span>
-        </div>
+        <PanelCard hover={false}>
+          <p className="text-secondary">No providers configured.</p>
+          <p className="text-caption text-tertiary">Click &quot;Add Provider&quot; to get started.</p>
+        </PanelCard>
       )}
 
-      <div className="panel-list">
+      <div className="space-y-3">
         {records.map(r => (
           <ProviderCard key={r.id} record={r} isActive={r.id === activeProviderId}
-            onUpdated={updated => { setRecords(rs => rs.map(p => p.id === updated.id ? updated : p)); void refreshActiveProvider(); }}
-            onDeleted={id => { setRecords(rs => rs.filter(p => p.id !== id)); void refreshActiveProvider(); }} />
+            onUpdated={updated => { setRecords(rs => rs.map(p => p.id === updated.id ? updated : p)); void refreshActiveProvider(); onProvidersChanged?.(); }}
+            onDeleted={id => { setRecords(rs => rs.filter(p => p.id !== id)); void refreshActiveProvider(); onProvidersChanged?.(); }} />
         ))}
       </div>
     </div>
