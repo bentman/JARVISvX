@@ -84,7 +84,7 @@ characters max), description, instructions (255 characters max), adapter (`acp` 
 voice persona, and capabilities (`workspace.read`, `workspace.write`, `git.read`,
 `shell` — the latter two require per-run approval). Delete is available only for
 custom agents. To run an agent, use `@agentid objective` in chat, or `/panel`/`/debate`
-for multi-agent runs (see [OperatorsGuide.md](OperatorsGuide.md) for the CLI
+for multi-agent runs (see [OperatorsGuide-CLI.md](OperatorsGuide-CLI.md) for the CLI
 equivalents).
 
 ### Providers

@@ -41,7 +41,7 @@ npm link
 jarvis
 ```
 
-`jarvis` attaches to a running daemon, or starts one, automatically. See [OperatorsGuide.md](OperatorsGuide.md) for the full command reference.
+`jarvis` attaches to a running daemon, or starts one, automatically. See [OperatorsGuide-CLI.md](OperatorsGuide-CLI.md) for the full command reference.
 
 > **`npm link` fails with `EEXIST`?** That's npm's own global command shim, not JARVIS
 > data — it's written once per machine the first time you link, and re-cloning or
@@ -62,5 +62,5 @@ provider URLs, data directory, cloud credentials) inline.
 ## Next Steps
 
 - Using the desktop UI day-to-day → [OperatorsGuide-GUI.md](OperatorsGuide-GUI.md)
-- Using the `jarvis` CLI day-to-day → [OperatorsGuide.md](OperatorsGuide.md)
+- Using the `jarvis` CLI day-to-day → [OperatorsGuide-CLI.md](OperatorsGuide-CLI.md)
 - Architecture, storage layout, safety model → [README.md](../README.md)

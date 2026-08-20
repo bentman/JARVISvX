@@ -13,7 +13,7 @@ first time.
 ## Guides
 
 - **Desktop GUI, day-to-day operation** → [docs/OperatorsGuide-GUI.md](docs/OperatorsGuide-GUI.md)
-- **`jarvis` CLI, day-to-day operation** → [docs/OperatorsGuide.md](docs/OperatorsGuide.md)
+- **`jarvis` CLI, day-to-day operation** → [docs/OperatorsGuide-CLI.md](docs/OperatorsGuide-CLI.md)
 
 ## Configuration
 
