@@ -246,12 +246,12 @@ export function MemoryCenterView() {
                   onClick={() => setActiveCategory(tab.id)}
                   className={`px-3 py-2 rounded-xl transition-all whitespace-nowrap text-xs font-mono ${
                     isActive
-                      ? 'text-slate-900 font-bold'
+                      ? 'font-bold'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                   style={
                     isActive
-                      ? { backgroundColor: '#52d4fb' }
+                      ? { backgroundColor: '#52d4fb', color: '#041019' }
                       : { backgroundColor: '#06111a', border: '1px solid #213342' }
                   }
                 >

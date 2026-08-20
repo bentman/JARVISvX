@@ -12,6 +12,7 @@ Local-first voice and terminal AI assistant. A loopback-only daemon owns SQLite 
 
 ```powershell
 npm install
+npm update
 npm run build
 
 # Desktop (Electron voice host)

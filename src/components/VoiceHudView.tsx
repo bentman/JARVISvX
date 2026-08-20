@@ -17,6 +17,9 @@ import { PanelHeader } from './ui/PanelHeader';
 import { SectionDivider } from './ui/SectionDivider';
 import { StatusBadge } from './ui/StatusBadge';
 
+type SpeechLogEntry = { id: string; at: string; text: string };
+const MAX_SPEECH_LOG_ENTRIES = 100;
+
 export function VoiceHudView() {
   // Bootstrap fetch + live SSE updates, shared with VoiceControls/VoiceDiagnostics —
   // see src/hooks/useVoiceStatus.ts. Replaces the old per-panel 3s poll of GET /api/voice.
@@ -25,13 +28,14 @@ export function VoiceHudView() {
   const [activeMode, setActiveMode] = useState('wake');
   const [currentState, setCurrentState] = useState('wake-listening');
   const [audioLevel, setAudioLevel] = useState(0);
-  const [lastTranscript, setLastTranscript] = useState<string | null>(null);
+  const [speechLog, setSpeechLog] = useState<SpeechLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const speechLogEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (voiceStatus?.voice) setActiveVoice(voiceStatus.voice);
@@ -42,6 +46,37 @@ export function VoiceHudView() {
   useEffect(() => {
     if (voiceError) setError(voiceError);
   }, [voiceError]);
+
+  // Real live speech log: subscribes directly to the same assistant event
+  // stream useVoiceStatus consumes (see src/hooks/useVoiceStatus.ts), but
+  // accumulates the entries instead of only keeping the latest one — every
+  // voice-state transition (wake-listening -> capturing -> transcribing ->
+  // ...) and every final transcript VoiceRuntime.transcript() publishes
+  // (lib/voice-runtime.mjs) is real telemetry from the local voice pipeline,
+  // not a canned string.
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        for await (const event of api.events(controller.signal)) {
+          if (event.type === 'voice-state') {
+            const text = event.detail || event.message;
+            if (!text) continue;
+            setSpeechLog((prev) => [...prev, { id: event.id, at: event.at, text }].slice(-MAX_SPEECH_LOG_ENTRIES));
+          } else if (event.type === 'final-transcript') {
+            setSpeechLog((prev) => [...prev, { id: event.id, at: event.at, text: `Heard: "${event.text}"` }].slice(-MAX_SPEECH_LOG_ENTRIES));
+          }
+        }
+      } catch (err: any) {
+        if (!controller.signal.aborted) setError(err.message || 'Speech log event stream disconnected.');
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    speechLogEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [speechLog]);
 
   // Web Audio Micro-analyzer
   useEffect(() => {
@@ -123,16 +158,6 @@ export function VoiceHudView() {
       await api.setVoiceState('wake-listening');
       setCurrentState('interrupted');
       setTimeout(() => setCurrentState('wake-listening'), 1200);
-    } catch (err: any) {
-      setError(err.message);
-    }
-  };
-
-  const handleExecuteQuickSkill = async (command: string) => {
-    try {
-      setLastTranscript(`Executing ${command}...`);
-      const res = await api.executeSkill(command);
-      setLastTranscript(res.output);
     } catch (err: any) {
       setError(err.message);
     }
@@ -253,36 +278,28 @@ export function VoiceHudView() {
           </div>
         </PanelCard>
 
-        {/* Column 2: Speech Transcript & Quick Actions */}
+        {/* Column 2: Speech Transcript Log */}
         <PanelCard>
           <SectionDivider
-            title="Speech Log & Quick Prompts"
+            title="Speech Log"
             icon={<Terminal className="w-4 h-4 text-purple-400" />}
           />
 
-          <div className="flex flex-wrap gap-2 text-xs font-mono">
-            {[
-              { cmd: '/calc 1024 * 16', label: '/calc' },
-              { cmd: '/hardware', label: '/hardware' },
-              { cmd: '/search AI breakthroughs', label: '/search' },
-              { cmd: '/mcp', label: '/mcp' }
-            ].map((item, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleExecuteQuickSkill(item.cmd)}
-                className="btn btn-sm btn-purple"
-              >
-                <Terminal className="w-3 h-3 text-purple-400" />
-                {item.label}
-              </button>
-            ))}
-          </div>
-
           <div
-            className="bg-deep border border-slate-800 rounded-xl p-3 font-mono text-xs text-cyan-300 whitespace-pre-wrap"
-            style={{ minHeight: '70px' }}
+            className="bg-deep border border-slate-800 rounded-xl p-3 font-mono text-xs text-cyan-300 space-y-2 overflow-y-auto"
+            style={{ minHeight: '320px', maxHeight: '320px' }}
           >
-            {lastTranscript || 'Listening for speech input...'}
+            {speechLog.length ? (
+              speechLog.map((entry) => (
+                <p key={entry.id} className="whitespace-pre-wrap">
+                  <span className="text-slate-500">{new Date(entry.at).toLocaleTimeString()}</span>{' '}
+                  {entry.text}
+                </p>
+              ))
+            ) : (
+              <p className="text-slate-500">Listening for speech input...</p>
+            )}
+            <div ref={speechLogEndRef} />
           </div>
         </PanelCard>
       </div>

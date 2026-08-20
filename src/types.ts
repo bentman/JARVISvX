@@ -3,7 +3,7 @@ export type ProviderTag = 'local' | 'cloud' | 'fast' | 'reasoning' | 'vision' | 
 
 // Returned by GET /api/providers (health-checked) — includes tags/priority so the UI
 // can tell a cloud-tagged provider from a local one without relying on a fixed id.
-export type Provider = { id: string; label: string; available: boolean; models: string[]; reason?: string; tags?: ProviderTag[]; priority?: number };
+export type Provider = { id: string; label: string; available: boolean; models: string[]; reason?: string; tags?: ProviderTag[]; priority?: number; protocol?: ProviderProtocol | null };
 
 export interface ProviderRecord {
   id: string;
@@ -52,7 +52,7 @@ export type ToolCallActivity = { name: string; arguments?: Record<string, unknow
 export type Message = { id: string; role: 'user' | 'assistant' | 'system'; content: string; reasoning?: string; toolCalls?: ToolCallActivity[]; provider?: string; status: string; created_at: string };
 export type Conversation = { id: string; title: string; created_at: string; updated_at: string; messages?: Message[] };
 export type Root = { id: string; path: string; added_at: string };
-export type Diagnostics = { generatedAt: string; system: { platform: string; arch: string; release: string; cpu: { model: string; speed: number }[]; memory: { total: number; free: number } }; acceleration: { status: string; reason?: string; gpus?: { name: string; memoryBytes: number | null; memorySource: string; memoryReason?: string }[]; npu?: { status: string; name?: string; reason?: string } }; providers: Provider[] };
+export type Diagnostics = { generatedAt: string; system: { platform: string; arch: string; release: string; cpu: { model: string; speed: number }[]; cpuShortName: string; memory: { total: number; free: number }; hostClass: string }; acceleration: { status: string; reason?: string; gpus?: { name: string; memoryBytes: number | null; memorySource: string; memoryReason?: string }[]; npu?: { status: string; name?: string; reason?: string } }; providers: Provider[] };
 
 export interface AgentProfile {
   id: string;

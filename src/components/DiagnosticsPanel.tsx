@@ -9,6 +9,24 @@ import type { Diagnostics } from '../types';
 
 const fmt = (bytes: number) => `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 
+const OS_LABELS: Record<string, string> = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
+const PROTOCOL_LABELS: Record<string, string> = {
+  'openai-compat': 'OpenAI-Compatible',
+  ollama: 'Ollama',
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
+  'azure-openai': 'Azure OpenAI'
+};
+
+function SystemField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-xs font-mono">
+      <span className="text-tertiary">{label}</span>
+      <span className="text-secondary">{value}</span>
+    </div>
+  );
+}
+
 export function DiagnosticsPanel({
   data,
   refresh
@@ -42,12 +60,14 @@ export function DiagnosticsPanel({
           <div className="panel-content">
             <PanelCard padding="compact" gap="none">
               <SectionDivider title="System" />
-              <p className="text-small text-secondary">
-                {data.system.platform} · {data.system.arch} · {data.system.cpu.length} CPU threads
-              </p>
-              <p className="text-xs text-tertiary">
-                Memory: {fmt(data.system.memory.free)} free / {fmt(data.system.memory.total)} total
-              </p>
+              <div className="space-y-2">
+                <SystemField label="HOSTCLASS" value={data.system.hostClass} />
+                <SystemField label="OS" value={OS_LABELS[data.system.platform] || data.system.platform} />
+                <SystemField label="ARCH" value={data.system.arch} />
+                <SystemField label="CPU" value={data.system.cpuShortName} />
+                <SystemField label="CORES" value={String(data.system.cpu.length)} />
+                <SystemField label="MEM" value={fmt(data.system.memory.total)} />
+              </div>
             </PanelCard>
 
             <PanelCard padding="compact" gap="none">
@@ -100,7 +120,9 @@ export function DiagnosticsPanel({
                     <span className="font-medium">{provider.label}</span>
                   </StatusBadge>
                   <span className="text-xs text-tertiary">
-                    {provider.available ? (provider.models.join(', ') || 'No models reported') : provider.reason}
+                    {provider.available
+                      ? (provider.protocol && (PROTOCOL_LABELS[provider.protocol] || provider.protocol)) || 'Protocol unknown'
+                      : provider.reason}
                   </span>
                 </div>
               ))}

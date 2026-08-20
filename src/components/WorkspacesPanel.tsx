@@ -139,7 +139,9 @@ export function WorkspacesPanel({
         </div>
 
         <p className="text-small text-tertiary">
-          Skills and self-evolution routines may propose code edits for review, but cannot execute or write files without explicit human approval.
+          Self-evolution is initiated by the model itself: any conversation with tool-calling enabled can call the <code>propose_workspace_edit</code> tool
+          mid-turn — no separate trigger or setting is needed. That call only ever stages a row below; it never touches disk. Approving or rejecting a
+          row in the queue below is the human checkpoint, for both model-proposed edits and the manual test edit below.
         </p>
 
         <button
@@ -147,7 +149,7 @@ export function WorkspacesPanel({
           className="btn btn-sm btn-secondary"
         >
           <Plus className="w-3.5 h-3.5" />
-          + Propose Test Workspace Code Edit
+          + Propose Test Workspace Code Edit (manual, for verifying the review flow)
         </button>
 
         <SectionDivider title="Pending Review Queue" count={pendingEdits.length} />
