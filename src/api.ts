@@ -1,4 +1,4 @@
-import type { AgentProfile, AgentRun, Conversation, Diagnostics, EffectiveSettings, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, ProviderProtocol, ProviderRecord, ProviderTestResult, Root, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
+import type { AgentEditorOptions, AgentProfile, AgentRun, Conversation, Diagnostics, EffectiveSettings, HardwareProfile, McpServer, McpTool, MemoryItem, ModelConfig, Provider, ProviderProtocol, ProviderRecord, ProviderTestResult, Root, SkillExport, SkillModule, VoiceRuntimeStatus, WorkspaceEdit } from './types';
 
 declare global {
   interface Window {
@@ -118,6 +118,11 @@ export const api = {
   deleteSkill: (id: string) => json<{ removed: boolean }>(`/api/skills/${id}`, { method: 'DELETE' }),
   toggleSkill: (id: string) => json<SkillModule>(`/api/skills/${id}/toggle`, { method: 'POST', body: '{}' }),
   executeSkill: (idOrCommand: string, input: string = '') => json<{ success: boolean; slashCommand: string; skillName: string; output: string; durationMs: number }>(`/api/skills/execute`, { method: 'POST', body: JSON.stringify({ command: idOrCommand, input }) }),
+  // Real skills.sh integration (lib/skills-source.mjs) — importSkill fetches an
+  // actual SKILL.md from GitHub ("owner/repo", "owner/repo@ref", or a github.com
+  // URL); exportSkill renders an existing skill back out in the same SKILL.md shape.
+  importSkill: (source: string) => json<SkillModule>('/api/skills/import', { method: 'POST', body: JSON.stringify({ source }) }),
+  exportSkill: (id: string) => json<SkillExport>(`/api/skills/${id}/export`),
   // Memory Center API
   memories: (category?: string) => json<MemoryItem[]>(`/api/memory${category ? `?category=${encodeURIComponent(category)}` : ''}`),
   addMemory: (data: Partial<MemoryItem>) => json<MemoryItem>('/api/memory', { method: 'POST', body: JSON.stringify(data) }),
@@ -127,6 +132,10 @@ export const api = {
   // Agent Runtime API
   agents: () => json<AgentProfile[]>('/api/agents'),
   agent: (id: string) => json<AgentProfile>(`/api/agents/${id}`),
+  agentEditorOptions: () => json<AgentEditorOptions>('/api/agents/editor-options'),
+  createAgent: (profile: Partial<AgentProfile>) => json<AgentProfile>('/api/agents', { method: 'POST', body: JSON.stringify(profile) }),
+  updateAgent: (id: string, patch: Partial<AgentProfile>) => json<AgentProfile>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  deleteAgent: (id: string) => json<{ removed: boolean }>(`/api/agents/${id}`, { method: 'DELETE' }),
   executeAgentRun: (options: { agentId?: string; agentIds?: string[]; objective: string; mode?: 'solo' | 'delegate' | 'panel' | 'debate'; conversationId?: string; requestedCapabilities?: string[]; approved?: boolean }) => json<AgentRun>('/api/agents/run', { method: 'POST', body: JSON.stringify(options) }),
   agentRuns: (conversationId?: string) => json<AgentRun[]>(`/api/runs${conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''}`),
 

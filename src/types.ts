@@ -64,6 +64,22 @@ export interface AgentProfile {
   voice: string;
   capabilities: string[];
   instructions: string;
+  // True for the seven built-in roles (registry.mjs's DEFAULT_AGENT_PROFILES) —
+  // their name/description/instructions are fixed; only adapter/cli/voice/
+  // capabilities may be edited (see PUT /api/agents/:id). Custom agents (added via
+  // POST /api/agents) have every field editable.
+  isBuiltIn?: boolean;
+}
+
+// Backs the Agent Profiles editor (GET /api/agents/editor-options) — the exact
+// selector choices the backend will accept, so the UI never offers one it would
+// then reject.
+export interface AgentEditorOptions {
+  adapters: string[];
+  clis: string[];
+  capabilities: string[];
+  maxNameLength: number;
+  maxInstructionsLength: number;
 }
 
 export interface AgentRun {
@@ -96,6 +112,13 @@ export interface McpServer {
   tools: McpTool[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+// Returned by POST /api/skills/import and GET /api/skills/:id/export — the real
+// skills.sh integration (see lib/skills-source.mjs).
+export interface SkillExport {
+  filename: string;
+  content: string;
 }
 
 export interface SkillModule {

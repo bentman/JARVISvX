@@ -63,7 +63,7 @@ test('AgentRegistry loads built-in agent role profiles and CLI bindings', async 
 
   assert.ok(profiles.length >= 7);
   const architect = registry.get('architect');
-  assert.equal(architect.name, 'Architect (Claude Code)');
+  assert.equal(architect.name, 'Architect');
   assert.equal(architect.cli, 'claude');
   assert.equal(architect.voice, 'bm_george');
   assert.deepEqual(architect.capabilities, ['workspace.read', 'git.read']);
@@ -79,6 +79,120 @@ test('AgentRegistry loads built-in agent role profiles and CLI bindings', async 
 
   const debuggerAgent = registry.get('debugger');
   assert.equal(debuggerAgent.cli, 'cline');
+});
+
+// AgentRegistry.create/update/deleteAgent write to <cwd>/.jarvis/agents.json (see
+// registry.mjs's configPath) — run these against a scratch cwd so the test suite
+// never touches this repo's real .jarvis directory, and always restore the real
+// cwd afterward even if an assertion throws.
+async function withScratchCwd(fn) {
+  const originalCwd = process.cwd();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-agent-registry-'));
+  process.chdir(dir);
+  try {
+    await fn(dir);
+  } finally {
+    process.chdir(originalCwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('AgentRegistry.createAgent adds a real, persisted custom agent with a unique slugified id', async () => {
+  await withScratchCwd(async (dir) => {
+    const registry = new AgentRegistry();
+    await registry.load();
+
+    const created = await registry.createAgent({
+      name: 'QA Runner',
+      description: 'Runs the test suite and reports failures.',
+      adapter: 'acp',
+      cli: 'claude',
+      voice: 'af_bella',
+      capabilities: ['workspace.read', 'shell'],
+      instructions: 'Run tests, report only real failures.'
+    });
+
+    assert.equal(created.id, 'qa-runner');
+    assert.equal(created.isBuiltIn, false);
+    assert.deepEqual(registry.get('qa-runner').capabilities, ['workspace.read', 'shell']);
+
+    // Persisted for real — a fresh registry loading the same cwd picks it up.
+    const reloaded = new AgentRegistry();
+    await reloaded.load();
+    assert.equal(reloaded.get('qa-runner').name, 'QA Runner');
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, '.jarvis', 'agents.json'), 'utf8'));
+    assert.equal(onDisk.agents['qa-runner'].name, 'QA Runner');
+
+    // A second agent with a colliding slug gets a disambiguated id.
+    const dup = await registry.createAgent({ name: 'QA Runner', cli: 'claude', instructions: 'second one' });
+    assert.equal(dup.id, 'qa-runner-2');
+  });
+});
+
+test('AgentRegistry.createAgent rejects invalid fields instead of silently accepting them', async () => {
+  await withScratchCwd(async () => {
+    const registry = new AgentRegistry();
+    await registry.load();
+
+    await assert.rejects(registry.createAgent({ name: '' }), /name is required/);
+    await assert.rejects(registry.createAgent({ name: 'x'.repeat(25) }), /24 characters or fewer/);
+    await assert.rejects(registry.createAgent({ name: 'Too Long Instructions', instructions: 'x'.repeat(256) }), /255 characters or fewer/);
+    await assert.rejects(registry.createAgent({ name: 'Bad Adapter', adapter: 'telepathy' }), /Unknown adapter/);
+    await assert.rejects(registry.createAgent({ name: 'Bad CLI', adapter: 'acp', cli: 'gpt5-cli' }), /Unknown CLI/);
+    await assert.rejects(registry.createAgent({ name: 'Bad Caps', capabilities: ['sudo'] }), /Unknown capabilit/);
+    await assert.rejects(registry.createAgent({ name: 'No CLI', adapter: 'acp', cli: null }), /needs a CLI selected/);
+  });
+});
+
+test('AgentRegistry.updateAgent restricts built-in agents to wiring fields only, and persists changes for both built-in and custom agents', async () => {
+  await withScratchCwd(async (dir) => {
+    const registry = new AgentRegistry();
+    await registry.load();
+
+    // Built-in: adapter/cli/voice/capabilities may change...
+    const updated = await registry.updateAgent('architect', { cli: 'codex', voice: 'af_sarah' });
+    assert.equal(updated.cli, 'codex');
+    assert.equal(updated.command, 'codex');
+    assert.equal(updated.voice, 'af_sarah');
+    assert.equal(updated.name, 'Architect'); // identity unchanged
+
+    // ...but name/instructions are locked.
+    await assert.rejects(registry.updateAgent('architect', { name: 'New Name' }), /built-in role/);
+    await assert.rejects(registry.updateAgent('architect', { instructions: 'new instructions' }), /built-in role/);
+
+    // The override survives a fresh load from disk.
+    const reloaded = new AgentRegistry();
+    await reloaded.load();
+    assert.equal(reloaded.get('architect').cli, 'codex');
+
+    // Custom agents can have every field edited, including name/instructions.
+    const custom = await registry.createAgent({ name: 'Scout', cli: 'claude', instructions: 'look around' });
+    const editedCustom = await registry.updateAgent(custom.id, { name: 'Scout Prime', instructions: 'look far around' });
+    assert.equal(editedCustom.name, 'Scout Prime');
+    assert.equal(editedCustom.instructions, 'look far around');
+
+    // Unknown agent id fails with a 404-flavored error.
+    await assert.rejects(registry.updateAgent('does-not-exist', { voice: 'af_bella' }), (err) => err.code === 'not_found');
+    void dir;
+  });
+});
+
+test('AgentRegistry.deleteAgent removes custom agents but refuses to remove built-ins', async () => {
+  await withScratchCwd(async () => {
+    const registry = new AgentRegistry();
+    await registry.load();
+
+    const custom = await registry.createAgent({ name: 'Temp Agent', cli: 'claude', instructions: 'temporary' });
+    assert.ok(registry.get(custom.id));
+
+    const result = await registry.deleteAgent(custom.id);
+    assert.equal(result.removed, true);
+    assert.equal(registry.get(custom.id), null);
+
+    await assert.rejects(registry.deleteAgent('architect'), /built-in role and cannot be deleted/);
+    await assert.rejects(registry.deleteAgent('never-existed'), (err) => err.code === 'not_found');
+  });
 });
 
 test('PolicyGate evaluates capability intersection and workspace boundary', () => {
