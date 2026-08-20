@@ -6,8 +6,8 @@
       "name": "Architect",
       "description": "Designs systems and identifies boundaries using Claude Code CLI.",
       "adapter": "acp",
-      "cli": "codex",
-      "command": "codex",
+      "cli": "claude",
+      "command": "claude",
       "voice": "bm_george",
       "capabilities": [
         "workspace.read",

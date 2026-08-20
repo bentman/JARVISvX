@@ -325,7 +325,7 @@ export function MemoryCenterView() {
         ))}
         {!memories.length && (
           <div className="col-span-full panel-card p-6 text-center font-mono space-y-2">
-            <Brain className="w-8 h-8 text-slate-600 mx-auto" />
+            <Brain className="w-8 h-8 text-muted mx-auto" />
             <p className="text-slate-400 text-sm">No memory items match the filter or query.</p>
           </div>
         )}

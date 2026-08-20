@@ -89,7 +89,7 @@ export function SettingsPanel({
               type="checkbox"
               checked={cloudApproved}
               onChange={(e) => setCloudApproved(e.target.checked)}
-              className="rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-0"
+              className="rounded bg-slate-950 border-slate-800 accent-cyan-500"
             />
             I approve sending cloud requests to my configured remote provider endpoint.
           </label>

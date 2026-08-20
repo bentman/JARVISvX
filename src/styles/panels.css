@@ -723,6 +723,12 @@
 .border-b-0 { border-bottom: 0; }
 
 /* ---- Border Radius ---- */
+/* Bare "rounded" (Tailwind's default-radius shorthand, no suffix) was never
+   defined — only the suffixed variants below were — so every className="rounded"
+   usage across the app (AgentOrchestrationView badges, ModelOrchestrationView
+   checkboxes, SettingsPanel's checkbox, MemoryCenterView pills, ...) silently
+   rendered with square corners. */
+.rounded { border-radius: var(--radius-md); }
 .rounded-sm { border-radius: var(--radius-sm); }
 .rounded-default { border-radius: var(--radius-default); }
 .rounded-md { border-radius: var(--radius-md); }
@@ -739,6 +745,13 @@
 .cursor-pointer { cursor: pointer; }
 .cursor-not-allowed { cursor: not-allowed; }
 .select-none { user-select: none; }
+
+/* ---- Form Control Accent ---- */
+/* Native checkbox/radio/range tinting (the real "accent-color" CSS property) —
+   used on several checkboxes/sliders (AgentOrchestrationView's approval checkbox,
+   ModelOrchestrationView's checkboxes/range input) that were left rendering in
+   the browser's default blue with no matching rule defined. */
+.accent-cyan-500 { accent-color: var(--cyan-400); }
 
 /* ---- Opacity ---- */
 .opacity-45 { opacity: 0.45; }
