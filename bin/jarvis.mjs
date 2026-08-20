@@ -1,22 +1,167 @@
 #!/usr/bin/env node
 import 'dotenv/config';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import React, { useEffect, useRef, useState } from 'react';
 import { render, Box, Text, useApp, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { DaemonClient } from '../lib/daemon-client.mjs';
 
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const [command = 'tui', ...args] = process.argv.slice(2);
+
+// --version/--help never need a running daemon — mirrors every companion CLI
+// (claude --help, codex --help, copilot version, cline version, agy help),
+// none of which block on backend connectivity for these.
+if (command === 'version' || command === '--version' || command === '-v') { await printVersion(); process.exit(0); }
+if (command === 'help' || command === '--help' || command === '-h') { printHelp(); process.exit(0); }
+
 const client = await DaemonClient.connect();
 
 if (command === 'doctor') { console.log(JSON.stringify(await client.diagnostics(), null, 2)); process.exitCode = 0; }
 else if (command === 'daemon') { console.log(JSON.stringify(await client.health(), null, 2)); process.exitCode = 0; }
-else if (command === 'ask') { await ask(args.join(' ')); process.exitCode = 0; }
+else if (command === 'ask') { await ask(args); process.exitCode = 0; }
+else if (command === 'agent' || command === 'agents') { await agentCommand(command === 'agents' ? ['list', ...args] : args); process.exitCode = 0; }
+else if (command === 'mcp') { await mcpCommand(args); process.exitCode = 0; }
+else if (command === 'skills') { await skillsCommand(args); process.exitCode = 0; }
+else if (command === 'settings') { await settingsCommand(args); process.exitCode = 0; }
 else if (command === 'workspace') { await workspace(args); process.exitCode = 0; }
 else if (command === 'serve') { console.log(`Daemon active at ${client.base}`); }
 else if (process.stdout.isTTY) render(React.createElement(Tui, { client }));
 else { await repl(); process.exitCode = 0; }
 
-async function ask(content) { if (!content.trim()) throw new Error('Usage: jarvis ask "message"'); for await (const event of client.chat({ content, providerId: undefined, origin: 'cli' })) { if (event.type === 'token') process.stdout.write(event.value); if (event.type === 'error') console.error(`\nError: ${event.message}`); } process.stdout.write('\n'); }
+// ---- Flag parsing -----------------------------------------------------
+// Small hand-rolled parser (no new dependency) covering the --flag,
+// --flag=value, and --flag value forms every companion CLI uses.
+// `--` is always kept positional (the `agent panel a1 a2 -- "objective"`
+// separator already used by the TUI's /panel and /debate).
+function parseArgs(list, { valueFlags = [] } = {}) {
+  const positional = [];
+  const values = {};
+  for (let i = 0; i < list.length; i += 1) {
+    const arg = list[i];
+    if (arg === '--') { positional.push(arg); continue; }
+    if (arg.startsWith('--')) {
+      const eq = arg.indexOf('=');
+      const name = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
+      if (eq !== -1) { values[name] = arg.slice(eq + 1); }
+      else if (valueFlags.includes(name)) { values[name] = list[i + 1]; i += 1; }
+      else { values[name] = true; }
+    } else positional.push(arg);
+  }
+  return { positional, values };
+}
+async function readStdin() { const chunks = []; for await (const chunk of process.stdin) chunks.push(chunk); return Buffer.concat(chunks).toString('utf8'); }
+
+// ---- CLI-only commands (no daemon connection required) ----------------
+async function printVersion() { const pkg = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')); console.log(pkg.version); }
+function printHelp() {
+  console.log([
+    'Usage: jarvis <command> [args]',
+    '',
+    '  ask "<message>"    Ask JARVIS once and exit (scriptable). Reads stdin if no',
+    '                      message is given and stdin is not a TTY.',
+    '                      [--provider <id>] [--model <name>] [--json]',
+    '                      [--allow-cloud] [--allow-tools] [--resume <id>|--continue]',
+    '  agent list          List agent profiles',
+    '  agent run <id> "<objective>" [--allow-cloud] [--approve] [--conversation <id>] [--json]',
+    '  agent panel a1 a2 -- "<objective>"   Run a synthesized multi-agent panel',
+    '  agent debate a1 a2 -- "<objective>"  Run a bounded 2-round debate',
+    '  mcp list | add <name> <endpoint> [--type http|stdio] | remove <id> | ping <id>',
+    '  skills list | import <owner/repo[/path]> | export <id> [--out <file>] | toggle <id> | remove <id>',
+    '  settings [get] | settings mode <auto|local_only|cloud_only|provider:<id>>',
+    '  workspace list | add <path> | remove <id>',
+    '  doctor              Print live system hardware & runtime diagnostics',
+    '  daemon              Print daemon health',
+    '  serve               Print the running daemon\'s base URL',
+    '  version             Print the JARVISvX CLI version',
+    '  (no command)        Launch the interactive TUI (or a REPL notice if not a TTY)',
+    '',
+    'Inside the TUI, type /help for the full list of interactive slash commands.'
+  ].join('\n'));
+}
+
+// ---- Daemon-backed commands ---------------------------------------------
+async function ask(rawArgs) {
+  const { positional, values } = parseArgs(rawArgs, { valueFlags: ['provider', 'model', 'resume'] });
+  let content = positional.join(' ').trim();
+  if (!content && !process.stdin.isTTY) content = (await readStdin()).trim();
+  if (!content) throw new Error('Usage: jarvis ask "message" [--provider <id>] [--model <name>] [--json] [--allow-cloud] [--allow-tools] [--resume <id>|--continue]');
+  let conversationId;
+  if (values.resume) conversationId = (await client.conversation(values.resume))?.id;
+  else if (values.continue) conversationId = (await client.conversations())[0]?.id;
+  const payload = { content, conversationId, providerId: values.provider, model: values.model, allowCloud: Boolean(values['allow-cloud']), allowToolWrites: Boolean(values['allow-tools']), origin: 'cli' };
+  for await (const event of client.chat(payload)) {
+    if (values.json) { console.log(JSON.stringify(event)); continue; }
+    if (event.type === 'token') process.stdout.write(event.value);
+    if (event.type === 'error') console.error(`\nError: ${event.message}`);
+  }
+  if (!values.json) process.stdout.write('\n');
+}
+async function agentCommand(list) {
+  const [action, ...rest] = list;
+  if (action === 'list') { const agents = await client.agents(); console.log(agents.map((a) => `${a.id.padEnd(12)} ${a.name.padEnd(14)} adapter:${a.adapter}${a.cli ? `/${a.cli}` : ''}  voice:${a.voice}${a.isBuiltIn ? '' : '  (custom)'}`).join('\n') || 'No agents configured.'); return; }
+  if (action === 'run') {
+    const { positional, values } = parseArgs(rest, { valueFlags: ['conversation'] });
+    const [agentId, ...objectiveParts] = positional;
+    const objective = objectiveParts.join(' ');
+    if (!agentId || !objective) throw new Error('Usage: jarvis agent run <agentId> "<objective>" [--allow-cloud] [--approve] [--conversation <id>] [--json]');
+    const run = await client.runAgent({ agentId, objective, mode: 'solo', conversationId: values.conversation, approved: Boolean(values.approve), allowCloud: Boolean(values['allow-cloud']) });
+    console.log(values.json ? JSON.stringify(run, null, 2) : (run.result || 'Agent run complete.'));
+    return;
+  }
+  if (action === 'panel' || action === 'debate') {
+    const { positional, values } = parseArgs(rest, { valueFlags: ['conversation'] });
+    const sep = positional.indexOf('--');
+    const agentIds = sep === -1 ? [] : positional.slice(0, sep);
+    const objective = (sep === -1 ? [] : positional.slice(sep + 1)).join(' ');
+    if (!agentIds.length || !objective) throw new Error(`Usage: jarvis agent ${action} agent1 agent2 -- "<objective>" [--allow-cloud] [--approve] [--json]`);
+    const run = await client.runAgent({ agentIds, objective, mode: action, conversationId: values.conversation, approved: Boolean(values.approve), allowCloud: Boolean(values['allow-cloud']) });
+    console.log(values.json ? JSON.stringify(run, null, 2) : (run.result || 'Agent run complete.'));
+    return;
+  }
+  throw new Error('Usage: jarvis agent <list|run <id> "<objective>"|panel a1 a2 -- "<objective>"|debate a1 a2 -- "<objective>">');
+}
+async function mcpCommand(list) {
+  const [action, ...rest] = list;
+  if (!action || action === 'list') { const servers = await client.mcpServers(); console.log(servers.map((s) => `${s.id.padEnd(14)} ${s.name.padEnd(28)} type:${s.type.padEnd(8)} status:${s.status}  ${s.endpoint}`).join('\n') || 'No MCP servers configured.'); return; }
+  if (action === 'add') {
+    const { positional, values } = parseArgs(rest, { valueFlags: ['type'] });
+    const [name, endpoint] = positional;
+    if (!name || !endpoint) throw new Error('Usage: jarvis mcp add <name> <endpoint> [--type http|stdio]');
+    const server = await client.addMcpServer({ name, endpoint, type: values.type || 'http' });
+    console.log(`Added: ${server.id}  ${server.name}`);
+    return;
+  }
+  if (action === 'remove') { const [id] = rest; if (!id) throw new Error('Usage: jarvis mcp remove <id>'); await client.removeMcpServer(id); console.log(`Removed ${id}.`); return; }
+  if (action === 'ping') { const [id] = rest; if (!id) throw new Error('Usage: jarvis mcp ping <id>'); console.log(JSON.stringify(await client.pingMcpServer(id), null, 2)); return; }
+  throw new Error('Usage: jarvis mcp <list|add <name> <endpoint>|remove <id>|ping <id>>');
+}
+async function skillsCommand(list) {
+  const [action, ...rest] = list;
+  if (!action || action === 'list') { const skills = await client.skills(); console.log(skills.map((s) => `${s.slashCommand.padEnd(16)} ${s.name.padEnd(24)} ${s.enabled ? 'enabled ' : 'disabled'}  ${s.type}`).join('\n') || 'No skills configured.'); return; }
+  if (action === 'import') { const [source] = rest; if (!source) throw new Error('Usage: jarvis skills import <owner/repo[/path]>'); const skill = await client.importSkill(source); console.log(`Imported: ${skill.slashCommand}  (${skill.name})`); return; }
+  if (action === 'export') {
+    const { positional, values } = parseArgs(rest, { valueFlags: ['out'] });
+    const [id] = positional;
+    if (!id) throw new Error('Usage: jarvis skills export <id> [--out <file>]');
+    const { filename, content } = await client.exportSkill(id);
+    if (values.out) { await fs.writeFile(values.out, content, 'utf8'); console.log(`Wrote ${values.out}`); }
+    else if (process.stdout.isTTY) { await fs.writeFile(filename, content, 'utf8'); console.log(`Wrote ${filename}`); }
+    else process.stdout.write(content);
+    return;
+  }
+  if (action === 'toggle') { const [id] = rest; if (!id) throw new Error('Usage: jarvis skills toggle <id>'); const skill = await client.toggleSkill(id); console.log(`${skill.slashCommand}: ${skill.enabled ? 'enabled' : 'disabled'}`); return; }
+  if (action === 'remove') { const [id] = rest; if (!id) throw new Error('Usage: jarvis skills remove <id>'); await client.removeSkill(id); console.log(`Removed ${id}.`); return; }
+  throw new Error('Usage: jarvis skills <list|import <owner/repo>|export <id>|toggle <id>|remove <id>>');
+}
+async function settingsCommand(list) {
+  const [action, ...rest] = list;
+  if (!action || action === 'get') { console.log(JSON.stringify(await client.effectiveSettings(), null, 2)); return; }
+  if (action === 'mode') { const [mode] = rest; if (!mode) throw new Error('Usage: jarvis settings mode <auto|local_only|cloud_only|provider:<id>>'); const updated = await client.setOrchestration({ mode }); console.log(`Mode: ${updated.mode}`); return; }
+  throw new Error('Usage: jarvis settings [get|mode <auto|local_only|cloud_only|provider:<id>>]');
+}
 async function workspace([action, value]) { if (action === 'list') console.table(await client.json('/workspace-roots')); else if (action === 'add' && value) console.log((await client.json('/workspace-roots', { method: 'POST', body: JSON.stringify({ path: value }) })).path); else if (action === 'remove' && value) console.log(JSON.stringify(await client.json(`/workspace-roots/${value}`, { method: 'DELETE' }))); else console.error('Usage: jarvis workspace <list|add <path>|remove <id>>'); }
 async function repl() { process.stderr.write('JARVIS CLI requires a TTY for the interactive interface. Use `jarvis ask "…"` for scripts.\n'); }
 
@@ -141,7 +286,10 @@ function Tui({ client }) {
         '/doctor            Display live system hardware & runtime diagnostics',
         '/workspace         Manage approved workspace folder roots (list | add <path>)',
         '/settings          Print current active daemon & voice settings',
-        '/exit              Exit the CLI session'
+        '/exit              Exit the CLI session',
+        '',
+        'For scripting/CI, exit the TUI and use top-level subcommands instead —',
+        'run `jarvis --help` outside this session (ask/agent/mcp/skills/settings).'
       ].join('\n') }]);
       setLines((items) => [...items, { role: 'error', content: `Unknown or incomplete command: /${name}` }]);
     } catch (error) {
