@@ -55,7 +55,7 @@ export default function App() {
   }, [current?.id, refresh]);
   const activeProviderInfo = providers.find((provider) => provider.id === activeProvider);
   const availableModels = activeProviderInfo?.models || [];
-  // Providers now have real generated ids (prov-...), not the old fixed 'cloud' id — gate on the tag instead.
+  // Cloud approval follows the provider tag because provider IDs are opaque.
   const isCloudProvider = Boolean(activeProviderInfo?.tags?.includes('cloud'));
   useEffect(() => { if (!availableModels.includes(selectedModel)) { const next = availableModels[0] || ''; setSelectedModel(next); if (next) void api.setModel(activeProvider, next).catch((err) => setError(err.message)); } }, [activeProvider, availableModels.join('|'), selectedModel]);
 
@@ -101,14 +101,10 @@ export default function App() {
         if (message.type === 'token' && ownsTurn) {
           setCurrent((value) => value && value.id === conversationId ? { ...value, messages: value.messages?.map((item) => item.id === assistantMessageId ? { ...item, content: item.content + message.value } : item) } : value);
         }
-        // Reasoning ('thinking') text is kept only in this in-memory message — never
-        // sent anywhere, never part of what gets persisted or reloaded later.
+        // Reasoning and tool activity are request-local and are not persisted.
         if (message.type === 'reasoning' && ownsTurn) {
           setCurrent((value) => value && value.id === conversationId ? { ...value, messages: value.messages?.map((item) => item.id === assistantMessageId ? { ...item, reasoning: (item.reasoning || '') + message.value } : item) } : value);
         }
-        // Tool activity ('tool-call' when a call starts, 'tool-result' once it
-        // finishes) is tracked only on the in-memory assistant message, the same
-        // treatment 'reasoning' gets above — see docs/adr-0002-unified-capability-registry.md.
         if (message.type === 'tool-call' && ownsTurn) {
           setCurrent((value) => value && value.id === conversationId ? { ...value, messages: value.messages?.map((item) => item.id === assistantMessageId ? { ...item, toolCalls: [...(item.toolCalls || []), { name: message.name, arguments: message.arguments, status: 'running' as const }] } : item) } : value);
         }
@@ -138,11 +134,7 @@ export default function App() {
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => { if (event.key !== 'Enter' || event.altKey) return; event.preventDefault(); void send(); };
   const cancel = async () => { const activeTurn = activeTurnRef.current; window.dispatchEvent(new CustomEvent('jarvis:speak', { detail: { type: 'interrupt', conversationId: activeTurn?.conversationId, turnId: activeTurn?.turnId } })); if (activeTurn?.conversationId) await api.cancel(activeTurn.conversationId, activeTurn.turnId); else if (current?.id && current.id !== 'pending') await api.cancel(current.id); };
   const pushToTalk = () => { window.dispatchEvent(new CustomEvent('jarvis:speak', { detail: { type: 'capture' } })); void api.setVoiceState('capturing'); };
-  // Local-state-only: there is no backend "active provider" to persist — the
-  // provider id is passed explicitly per-turn into chat() (see send()). This
-  // used to also call api.setProvider() then refresh(), but that write was
-  // never read back anywhere and refresh() immediately re-derived
-  // activeProvider from registry priority, silently reverting the user's pick.
+  // Provider selection is local to the composer and is submitted with each turn.
   const chooseProvider = (id: string) => { setActiveProvider(id); setSelectedModel(''); setError(''); };
   const chooseModel = async (model: string) => { setSelectedModel(model); try { await api.setModel(activeProvider, model); } catch (err: any) { setError(err.message); } };
   const loadDiagnostics = useCallback(async () => {

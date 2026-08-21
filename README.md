@@ -14,6 +14,7 @@ first time.
 
 - **Desktop GUI, day-to-day operation** → [docs/OperatorsGuide-GUI.md](docs/OperatorsGuide-GUI.md)
 - **`jarvis` CLI, day-to-day operation** → [docs/OperatorsGuide-CLI.md](docs/OperatorsGuide-CLI.md)
+- **Implementation program** → [docs/implementation/README.md](docs/implementation/README.md)
 
 ## Configuration
 
@@ -29,9 +30,13 @@ All artifacts are kept inside the repository directory.
 | `models/wake` | Wake-word ONNX bundle |
 | `models/stt` | Whisper STT bundle |
 | `models/tts` | Kokoro TTS bundle |
-| `data/sql-db` | SQLite database; daemon lock/discovery file while running |
+| `data/sql-db/jarvis.sqlite` | SQLite application database |
+| `data/daemon.lock` | Single-instance ownership lock while the daemon runs |
+| `data/daemon.json` | Loopback port, process identity, and client token discovery while the daemon runs |
+| `data/provider.key` | Auto-generated provider-credential salt when `JARVIS_KEY_SALT` is empty; preserve it with the database |
 | `data/electron-profile` | Durable Electron user profile |
 | `cache/` | Re-creatable runtime state (`cache/temp` = download staging) |
+| `.jarvis/agents.json` | Source-mode agent-profile overrides, created when an agent profile is saved |
 
 No data is written to `%APPDATA%` or a home-directory folder — this holds regardless of
 the working directory `jarvis` is launched from, since defaults are anchored to the
@@ -137,4 +142,3 @@ reporting live in [AGENTS.md](AGENTS.md).
 ## License
 
 MIT — see [LICENSE](LICENSE).
-

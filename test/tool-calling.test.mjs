@@ -164,9 +164,7 @@ test('chat() leaves Anthropic/Gemini-style (non-tool-calling) providers unaffect
   }
 });
 
-// --- Provider-level SSE/NDJSON tool-call parsing, against a fake local HTTP
-// server emulating the real wire protocol shapes (no live LLM is reachable
-// from this environment — see docs/adr-0002-unified-capability-registry.md).
+// --- Provider-level SSE/NDJSON tool-call parsing ---
 
 async function withServer(handler, run) {
   const server = http.createServer(handler);
@@ -223,7 +221,7 @@ test('OllamaProvider.streamChat parses a native tool_calls response', async () =
   });
 });
 
-// --- Phase B: skills as model-callable capabilities ---
+// --- Skills as model-callable capabilities ---
 
 test('buildCapabilityRegistry includes enabled skills, slugified and read-only, but skips disabled ones', () => {
   const { db, close } = tempDb();
@@ -285,11 +283,9 @@ test('chat() invokes a skill through the tool-calling loop the same way /slash w
   }
 });
 
-// --- Phase C: agent delegation as a model-callable capability ---
+// --- Agent delegation as a model-callable capability ---
 
-// Swaps a real agent profile's adapter for a deterministic in-process one, the
-// same substitution test/agent-runtime.test.mjs uses to avoid depending on a
-// real external CLI (claude/codex/copilot/...) being installed.
+// Deterministic in-process adapters isolate capability behavior from installed CLIs.
 function useProcessAgent(app, agentId, respond) {
   const agent = app.agentRuntime.registry.get(agentId);
   app.agentRuntime.registry.profiles.set(agentId, { ...agent, adapter: 'process' });

@@ -3,10 +3,6 @@ import http from 'node:http';
 import test from 'node:test';
 import { OpenAICompatProvider } from '../lib/providers/openai-compat.mjs';
 
-// lib/providers.mjs (LlamaCppProvider et al.) was dead code superseded by the
-// registry-backed lib/providers/* implementations — see docs/tech-debt-fragmentation-audit.md
-// finding 3. This test now exercises the live code path, OpenAICompatProvider, with the
-// same mock-HTTP-server structure/assertions the old test used.
 test('openai-compat provider lists models and parses OpenAI SSE tokens', async (t) => {
   const server = http.createServer((req, res) => {
     if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'test-model' }] }));

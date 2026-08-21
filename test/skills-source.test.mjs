@@ -96,8 +96,6 @@ test('buildImportedSkill turns a real fetched SKILL.md into an executable skill 
   assert.equal(built.author, 'skills.sh:vercel-labs/agent-skills');
   assert.equal(built.version, 'main');
 
-  // Executing the generated code returns the real instructions verbatim — proves
-  // this isn't a stub that discards what was actually fetched.
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const fn = new AsyncFunction('ctx', `return (${built.code})(ctx);`);
   const result = await fn({ input: '' });

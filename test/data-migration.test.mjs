@@ -15,9 +15,7 @@ test('resolveDataDirectory defaults to <project-root>/data when env is empty', (
   assert.equal(result, path.join(PROJECT_ROOT, 'data'));
 });
 
-// Regression test for: running the daemon via the globally-linked `jarvis` CLI
-// (or any other cwd) must not scatter data into the user's current directory —
-// the default has to be anchored to the project install, not process.cwd().
+// The default data directory is anchored to the installation, not the caller's cwd.
 test('resolveDataDirectory default does not depend on the current working directory', () => {
   const originalCwd = process.cwd();
   const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-cwd-probe-'));

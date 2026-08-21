@@ -32,10 +32,7 @@ export function ModelOrchestrationView({
   onProvidersChanged,
   onOpenProviders
 }: {
-  // Called after any change here that other panels (Settings' Active
-  // Provider/Model dropdowns, the Providers "Active" badge) also display, so
-  // every surface reflects the same single result instead of going stale
-  // until an unrelated refresh happens to fire.
+  // Mutations notify every surface that displays effective provider settings.
   onProvidersChanged?: () => void;
   onOpenProviders?: () => void;
 } = {}) {
@@ -55,13 +52,8 @@ export function ModelOrchestrationView({
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
-  // The real active provider id, from the same authoritative source every
-  // other panel reads — not a hardcoded protocol name like 'llamacpp'.
+  // Effective settings own the active provider ID.
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
-  // Real installed providers, split by the same 'local'/'cloud' tags the
-  // Providers panel and routeTurn() both use — backs the endpoint selector
-  // below and the "MAX POWER" card, instead of a free-typed URL or a
-  // hardcoded "Gemini" label.
   const [localProviders, setLocalProviders] = useState<ProviderRecord[]>([]);
   const [cloudProviders, setCloudProviders] = useState<ProviderRecord[]>([]);
   const [selectedLocalProviderId, setSelectedLocalProviderId] = useState<string>('');
@@ -176,8 +168,7 @@ export function ModelOrchestrationView({
     { name: 'Phi-3.5-mini-instruct', size: '2.3 GB', vram: '3.5 GB', speed: '38.2 t/s', recommended: false }
   ];
 
-  // A pin ('provider:<id>') only counts as "cloud mode" if it actually
-  // points at a cloud-tagged provider — a local pin shouldn't light up this card.
+  // A provider pin enables cloud mode only when its provider carries the cloud tag.
   const pinnedCloudProviderId = typeof modelConfig.mode === 'string' && modelConfig.mode.startsWith('provider:')
     ? modelConfig.mode.slice('provider:'.length)
     : '';

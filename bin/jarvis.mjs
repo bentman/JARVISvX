@@ -11,9 +11,7 @@ import { DaemonClient } from '../lib/daemon-client.mjs';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const [command = 'tui', ...args] = process.argv.slice(2);
 
-// --version/--help never need a running daemon — mirrors every companion CLI
-// (claude --help, codex --help, copilot version, cline version, agy help),
-// none of which block on backend connectivity for these.
+// Version and help output do not require daemon connectivity.
 if (command === 'version' || command === '--version' || command === '-v') { await printVersion(); process.exit(0); }
 if (command === 'help' || command === '--help' || command === '-h') { printHelp(); process.exit(0); }
 
@@ -32,10 +30,7 @@ else if (process.stdout.isTTY) render(React.createElement(Tui, { client }));
 else { await repl(); process.exitCode = 0; }
 
 // ---- Flag parsing -----------------------------------------------------
-// Small hand-rolled parser (no new dependency) covering the --flag,
-// --flag=value, and --flag value forms every companion CLI uses.
-// `--` is always kept positional (the `agent panel a1 a2 -- "objective"`
-// separator already used by the TUI's /panel and /debate).
+// Supports --flag, --flag=value, and --flag value; `--` remains positional.
 function parseArgs(list, { valueFlags = [] } = {}) {
   const positional = [];
   const values = {};
@@ -182,8 +177,7 @@ function Tui({ client }) {
       if (prompt) {
         setLines((items) => [...items, { role: 'you', content }, { role: 'jarvis', content: '' }]);
         try {
-          // /approve-cloud covers the next cloud-touching action, agent run or chat
-          // turn alike — mirrors the allowCloud plumbing chat() already has below.
+          // Cloud approval covers one cloud-touching chat turn or agent run.
           const run = await client.json('/agents/run', {
             method: 'POST',
             body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approved: agentApproved, allowCloud: cloudApproved })
@@ -255,10 +249,7 @@ function Tui({ client }) {
       if (name === 'voice') { if (rest[0]) await client.setVoice(rest[0]); const voice = await client.voice(); return setLines((items) => [...items, { role: 'system', content: `Voice: ${voice.voice}; ${voice.message}` }]); }
       if (name === 'listen' || name === 'mute') { await client.setListening(name === 'listen'); return setLines((items) => [...items, { role: 'system', content: name === 'listen' ? 'Listening enabled.' : 'Listening muted.' }]); }
       if (name === 'interrupt' && conversation) { await client.cancel(conversation.id); return; }
-      // Local-state-only: there is no backend "active provider" to persist — the
-      // provider id is passed explicitly per-turn into client.chat() (see submit()).
-      // This used to also call client.setProvider(), a write nothing ever read back
-      // (see App.tsx's chooseProvider() for the same fix on the web UI side).
+      // Provider selection is local to the TUI and is submitted with each turn.
       if (name === 'provider' && rest[0]) { setProvider(rest[0]); setModel(''); return; }
       if (name === 'model') { if (!rest[0]) return setLines((items) => [...items, { role: 'system', content: `Model: ${model || 'not selected'}` }]); await client.setModel(provider, rest.join(' ')); setModel(rest.join(' ')); return; }
       if (name === 'approve-cloud') { setCloudApproved(true); return setLines((items) => [...items, { role: 'system', content: 'Cloud approved for the next turn or agent run only.' }]); }
@@ -298,4 +289,3 @@ function Tui({ client }) {
   };
   return React.createElement(Box, { flexDirection: 'column', padding: 1 }, React.createElement(Text, { color: 'cyan', bold: true }, 'JARVISvX  ', React.createElement(Text, { color: status === 'ready' ? 'green' : 'yellow' }, status), `  voice:${voiceState}  provider:${provider}${model ? `/${model}` : ''}  ${conversation ? `session:${conversation.id.slice(0, 8)}` : 'new session'}`), React.createElement(Box, { flexDirection: 'column', marginTop: 1 }, lines.slice(-20).map((line, index) => React.createElement(Box, { key: `${index}-${line.content.slice(0, 12)}`, flexDirection: 'column' }, React.createElement(Text, { color: line.role === 'you' ? 'cyan' : line.role === 'error' ? 'red' : line.role === 'system' || line.role === 'voice' ? 'yellow' : 'green', bold: true }, line.role.toUpperCase()), React.createElement(Text, null, line.content || '…')))), React.createElement(Box, { marginTop: 1 }, React.createElement(Text, { color: 'cyan' }, '> '), React.createElement(TextInput, { value: input, onChange: setInput, onSubmit: submit, placeholder: 'Ask JARVIS or type /help' })), React.createElement(Text, { dimColor: true }, 'Voice events are live · Esc interrupts active work · Ctrl+C exits · /help commands'));
 }
-

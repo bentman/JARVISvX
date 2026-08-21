@@ -7,18 +7,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { voiceModelManifest } from '../lib/model-bootstrap.mjs';
 
-// This suite exercises `bin/jarvis.mjs` itself — the real script, spawned as a
-// real child process — against a real running daemon (lib/daemon.mjs) backed
-// by a temp SQLite DB. It is deliberately scoped to CLI-level wiring: argv
-// parsing, route dispatch, and output formatting for the subcommands added
-// this session (agent/mcp/skills/settings/version/help + ask's new flags).
-// It does not re-verify RunCoordinator/skills.sh/orchestration internals —
-// those already have dedicated coverage in agent-runtime.test.mjs,
-// skills-source.test.mjs, and orchestration.test.mjs. `agent run`/`panel`/
-// `debate` positive paths are also out of scope here since they spawn real
-// external CLI binaries (claude/codex/...) that aren't guaranteed present in
-// any given test environment — only their usage/argument-validation paths
-// are covered.
+// Runs the CLI as a child process against a daemon backed by a temporary database.
+// External-agent success paths require installed CLIs and have argument validation
+// coverage here; their runtime behavior is covered by deterministic adapter tests.
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cliPath = path.join(repoRoot, 'bin', 'jarvis.mjs');
@@ -47,7 +38,7 @@ async function withDaemon(fn) {
   }
 }
 
-// Spawns the real CLI as a child process. `stdin` controls how stdin is wired:
+// Spawns the CLI as a child process. `stdin` controls how stdin is wired:
 // 'ignore' closes it immediately (simulates a non-interactive invocation with
 // nothing piped in — must not hang), a string pipes that exact content then
 // closes it (simulates `echo "..." | jarvis ask`).
@@ -70,8 +61,7 @@ function cli(args, { env, stdin = 'ignore', timeoutMs = 15000 } = {}) {
 
 test('jarvis version and help never require a running daemon connection', async () => {
   const pkg = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
-  // No JARVIS_DATA_DIR/daemon set up at all — connect() would hang/fail if
-  // version/help tried to reach a daemon, proving the short-circuit works.
+  // Version and help must remain independent of daemon discovery.
   const version = await cli(['version'], { env: { ...process.env, JARVIS_DATA_DIR: path.join(os.tmpdir(), 'jarvis-cli-no-daemon-should-not-be-touched') } });
   assert.equal(version.code, 0);
   assert.equal(version.stdout.trim(), pkg.version);
@@ -193,9 +183,7 @@ test('jarvis ask reads a piped message from stdin and surfaces the real daemon e
 
     const piped = await cli(['ask', '--json'], { env, stdin: 'hello from a pipe' });
     assert.equal(piped.code, 0);
-    // No providers are configured in this fresh temp DB, so the real chat
-    // pipeline reports a real "no providers" error rather than a CLI usage
-    // error — proving the piped stdin content reached client.chat().
+    // A provider error proves piped stdin reached the chat pipeline.
     assert.ok(!piped.stderr.includes('Usage: jarvis ask'));
     const events = piped.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
     assert.ok(events.some((event) => event.type === 'error'));

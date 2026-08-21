@@ -81,10 +81,7 @@ test('AgentRegistry loads built-in agent role profiles and CLI bindings', async 
   assert.equal(debuggerAgent.cli, 'cline');
 });
 
-// AgentRegistry.create/update/deleteAgent write to <cwd>/.jarvis/agents.json (see
-// registry.mjs's configPath) — run these against a scratch cwd so the test suite
-// never touches this repo's real .jarvis directory, and always restore the real
-// cwd afterward even if an assertion throws.
+// Registry mutation tests isolate <cwd>/.jarvis and restore cwd after every outcome.
 async function withScratchCwd(fn) {
   const originalCwd = process.cwd();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-agent-registry-'));
@@ -116,7 +113,6 @@ test('AgentRegistry.createAgent adds a real, persisted custom agent with a uniqu
     assert.equal(created.isBuiltIn, false);
     assert.deepEqual(registry.get('qa-runner').capabilities, ['workspace.read', 'shell']);
 
-    // Persisted for real — a fresh registry loading the same cwd picks it up.
     const reloaded = new AgentRegistry();
     await reloaded.load();
     assert.equal(reloaded.get('qa-runner').name, 'QA Runner');
@@ -255,11 +251,7 @@ test('Adapters probe status and generate tokens', async () => {
   assert.deepEqual(tokens, ['Hello from ProcessAdapter', ' with object token compatibility']);
 });
 
-// Finding 6 (docs/tech-debt-fragmentation-audit.md): ProcessAdapter.invoke() calls
-// getProvider() directly, bypassing chat()'s cloud-tag + allowCloud gate entirely — a
-// real, reachable path for an agent run to hit a cloud-tagged provider with zero user
-// approval. These two tests prove the gate that closes it, both in isolation and
-// threaded through the full executeAgentRun -> coordinator -> adapter call chain.
+// Direct provider access and coordinated agent runs enforce per-turn cloud approval.
 test('ProcessAdapter blocks a cloud-tagged provider without allowCloud, and permits it with allowCloud', async () => {
   const cloudProvider = {
     tags: ['cloud'],
@@ -472,7 +464,7 @@ test('API endpoints return agent list and execute agent run', async () => {
   }
 });
 
-// --- agents_send: a real follow-up-message delivery, not a canned "delivered" ---
+// --- agents_send follow-up delivery ---
 
 test('AcpAdapter.send writes to a still-running interactive process, and fails honestly once it has exited', async () => {
   const acp = new AcpAdapter();

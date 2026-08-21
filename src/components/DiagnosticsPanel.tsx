@@ -135,5 +135,4 @@ export function DiagnosticsPanel({
   );
 }
 
-// Re-export for convenience — keeps import concise in App.tsx
 export { fmt };

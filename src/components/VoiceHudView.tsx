@@ -21,8 +21,6 @@ type SpeechLogEntry = { id: string; at: string; text: string };
 const MAX_SPEECH_LOG_ENTRIES = 100;
 
 export function VoiceHudView() {
-  // Bootstrap fetch + live SSE updates, shared with VoiceControls/VoiceDiagnostics —
-  // see src/hooks/useVoiceStatus.ts. Replaces the old per-panel 3s poll of GET /api/voice.
   const { voice: voiceStatus, refresh: refreshStatus, error: voiceError } = useVoiceStatus();
   const [activeVoice, setActiveVoice] = useState('bf_isabella');
   const [activeMode, setActiveMode] = useState('wake');
@@ -47,13 +45,7 @@ export function VoiceHudView() {
     if (voiceError) setError(voiceError);
   }, [voiceError]);
 
-  // Real live speech log: subscribes directly to the same assistant event
-  // stream useVoiceStatus consumes (see src/hooks/useVoiceStatus.ts), but
-  // accumulates the entries instead of only keeping the latest one — every
-  // voice-state transition (wake-listening -> capturing -> transcribing ->
-  // ...) and every final transcript VoiceRuntime.transcript() publishes
-  // (lib/voice-runtime.mjs) is real telemetry from the local voice pipeline,
-  // not a canned string.
+  // The speech log accumulates voice-state transitions and final transcript events.
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {

@@ -32,24 +32,20 @@ export function McpSkillsView() {
   const [searchFilter, setSearchFilter] = useState('');
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
 
-  // Modals state
   const [showAddServerModal, setShowAddServerModal] = useState(false);
   const [showAddSkillModal, setShowAddSkillModal] = useState(false);
   const [editingSkill, setEditingSkill] = useState<SkillModule | null>(null);
   const [toolTester, setToolTester] = useState<{ server: McpServer; tool: McpTool } | null>(null);
 
-  // Form states for server creation
   const [newServerName, setNewServerName] = useState('');
   const [newServerType, setNewServerType] = useState('http');
   const [newServerEndpoint, setNewServerEndpoint] = useState('');
 
-  // Form states for skill creation/edit
   const [skillName, setSkillName] = useState('');
   const [skillCmd, setSkillCmd] = useState('');
   const [skillDesc, setSkillDesc] = useState('');
   const [skillCode, setSkillCode] = useState('');
 
-  // Test execution state
   const [toolParams, setToolParams] = useState('{}');
   const [toolExecuting, setToolExecuting] = useState(false);
   const [toolResult, setToolResult] = useState<string | null>(null);
@@ -58,9 +54,6 @@ export function McpSkillsView() {
   const [skillTesting, setSkillTesting] = useState(false);
   const [skillTestResult, setSkillTestResult] = useState<string | null>(null);
 
-  // Real skills.sh import — see lib/skills-source.mjs. Takes an "owner/repo" (or a
-  // github.com URL), fetches the actual SKILL.md, and adds it as a genuine
-  // executable skill; no placeholder/simulated result on success or failure.
   const [importSource, setImportSource] = useState('');
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -248,8 +241,6 @@ export function McpSkillsView() {
     setImporting(false);
   };
 
-  // Downloads a skill as a real SKILL.md file (see lib/skills-source.mjs's
-  // renderSkillAsMarkdown) — a genuine client-side file save, not a no-op button.
   const handleExportSkill = async (id: string) => {
     try {
       const { filename, content } = await api.exportSkill(id);

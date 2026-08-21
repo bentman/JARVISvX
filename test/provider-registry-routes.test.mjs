@@ -9,12 +9,6 @@ import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
 import { createApiRouter } from '../lib/api.mjs';
 
-// HTTP-route-level coverage for the `/api/provider-registry` CRUD/toggle/test
-// endpoints and `/api/settings/effective`. Other tests cover the underlying
-// application-layer logic (test/orchestration.test.mjs); these exercise the
-// actual Express routes end to end, the way test/daemon.test.mjs does for
-// the rest of the router.
-
 async function startTestServer() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-provider-routes-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));

@@ -1,49 +1,42 @@
-# ADR 0001: Split `/api/providers` and `/api/provider-registry`
+# ADR 0001: Separate provider health and registry routes
 
 Status: Accepted
 Date: 2026-08-18
 
 ## Context
 
-`lib/api.mjs` originally registered a single `GET /providers` route returning
-a `{ settings, providers }` shape used by the Settings panel and health
-checks. When the provider-registry feature (DB-backed providers with tags,
-priority, and CRUD) was added, its list/create endpoints were also mounted
-at `/providers`. Express dispatches to the first matching route handler, so
-the registry's `GET /providers` was silently shadowed by the legacy route —
-the registry-list endpoint was dead code from the moment it was added, and
-nothing surfaced the bug because both routes returned JSON with no shape
-validation on the client.
+Provider health and provider configuration expose different representations of
+the same provider records. Health reads perform live model discovery and return
+runtime availability with effective settings. Configuration operations return
+stored records and support mutation, connection probing, and enablement changes.
 
-This was found via the app-fragmentation tech-debt audit
-(`docs/tech-debt-fragmentation-audit.md`, route-collision finding).
+Express route registration requires these contracts to have distinct paths so
+each request resolves to one handler and one response shape.
 
 ## Decision
 
-Keep both route families, but give them distinct, non-overlapping base
-paths:
+`lib/api.mjs` owns two provider route families:
 
-- `GET /api/providers` — unchanged. Health-checked provider summaries for
-  Settings and diagnostics: `{ id, label, available, models, reason?, tags?,
-  priority? }[]`. Cheap to call repeatedly; does not require DB write access.
-- `/api/provider-registry` — new. Full CRUD over the `providers` table:
-  `GET /` (list), `POST /` (create), `GET /:id`, `PUT /:id`, `DELETE /:id`,
-  `POST /:id/test`, `POST /:id/toggle`. This is the source of truth for
-  provider configuration; the Providers admin view uses these exclusively.
+- `GET /api/providers` returns `{ settings, providers }`. `settings` comes from
+  `application.settings()`, and each item in `providers` is the live health result
+  of an enabled provider instance.
+- `/api/provider-registry` owns stored provider administration. It provides list,
+  create, read, update, delete, probe, test, and toggle operations over provider
+  records.
 
-`src/api.ts` mirrors the split: `providerHealth()` calls `/api/providers`,
-while `listProviders()`, `createProvider()`, `updateProvider()`,
-`deleteProvider()`, `testProvider()`, and `toggleProvider()` call
-`/api/provider-registry`.
+`lib/application.mjs` reloads the in-memory `ProviderRegistry` after each stored
+provider mutation. `src/api.ts` exposes the health contract through
+`providerHealth()` and the registry contract through `providers()`,
+`addProvider()`, `updateProvider()`, `deleteProvider()`, `testProvider()`,
+`toggleProvider()`, and `probeProviderModels()`.
 
 ## Consequences
 
-- No more silent route shadowing — the two concerns (a fast health summary
-  vs. authoritative CRUD) are addressed at genuinely different URLs.
-- Frontend code picks the right client method for the job; `src/api.ts` has
-  no single `providers()` export, so each call site names the concern it
-  needs.
-- External tooling or scripts calling the old registry-shaped
-  `GET /providers` route must switch to `GET /provider-registry` — that
-  route never functioned, since the health-check handler shadowed it. The
-  health-check shape at `GET /providers` is unchanged.
+- Bootstrap and settings consumers use `/api/providers` when they require live
+  availability and effective settings.
+- Provider administration uses `/api/provider-registry` when it requires stored
+  configuration or mutation.
+- Each route family has one response contract and cannot shadow the other during
+  Express dispatch.
+- Contract consolidation requires coordinated migration of the daemon,
+  desktop client, CLI client, and external API consumers.

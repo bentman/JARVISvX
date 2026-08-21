@@ -84,9 +84,7 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
       await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
-    // Provider ids are opaque generated strings (see docs/conventions-ids-and-crud.md),
-    // not the fixed 'ollama'/'llamacpp' ids the old static provider list used — look up
-    // the real id of the always-seeded Ollama-protocol provider rather than assuming one.
+    // Provider IDs are opaque; protocol identifies the seeded Ollama provider.
     const ollamaProvider = daemon.jarvis.listProviders().find((p) => p.protocol === 'ollama');
     assert.ok(ollamaProvider, 'an Ollama-protocol provider should be seeded by default');
     const model = await fetch(`http://127.0.0.1:${daemon.port}/api/settings/model`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-jarvis-token': 'test-token' }, body: JSON.stringify({ provider: ollamaProvider.id, model: 'qwen3:8b' }) });
@@ -99,4 +97,3 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
     delete process.env.JARVIS_MODEL_DIR;
   }
 });
-

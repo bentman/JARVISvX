@@ -3,13 +3,6 @@ import { useCallback, useRef, useState } from 'react';
 export type ToastVariant = 'success' | 'error';
 export interface Toast { id: number; variant: ToastVariant; message: string; }
 
-// Shared "it saved" / "it failed" feedback — replaces three independent
-// savedSuccess/actionSuccess + setTimeout reimplementations and WorkspacesPanel's
-// blocking native alert() calls (docs/tech-debt-fragmentation-audit.md, Finding 5).
-// alert() in particular is a real functional problem, not just style: it's a
-// synchronous, blocking browser dialog that halts the whole page (and, in Electron,
-// can block the renderer process) until dismissed — every other panel already gives
-// feedback without blocking anything.
 export function useToast(defaultDurationMs = 2500) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(0);
@@ -24,9 +17,7 @@ export function useToast(defaultDurationMs = 2500) {
   const show = useCallback((message: string, variant: ToastVariant = 'success', durationMs = defaultDurationMs) => {
     setToasts((items) => {
       const last = items[items.length - 1];
-      // A caller that fires the same message repeatedly in quick succession (e.g. a
-      // range input's onChange, which fires per pixel while dragging) should refresh
-      // one toast's timer, not pile up a duplicate per tick.
+      // Repeated identical messages share one toast and refresh its timer.
       if (last && last.variant === variant && last.message === message) {
         const timer = timers.current.get(last.id);
         if (timer) clearTimeout(timer);

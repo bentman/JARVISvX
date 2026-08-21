@@ -1,8 +1,5 @@
 #!/usr/bin/env node
-// A minimal, real MCP server over the stdio transport, used to test
-// lib/mcp-stdio.mjs against actual JSON-RPC-over-stdio traffic rather than a
-// mock. Speaks just enough of the protocol to be a faithful fixture:
-// initialize, tools/list, and tools/call for two tools ('echo' and 'boom').
+// Minimal stdio fixture supporting initialize, tools/list, and tools/call.
 
 let buffer = '';
 process.stdin.on('data', (chunk) => {

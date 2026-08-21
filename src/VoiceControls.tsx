@@ -5,8 +5,6 @@ import { useVoiceStatus } from './hooks/useVoiceStatus';
 import './voice-diagnostics.css';
 
 export function VoiceControls() {
-  // Shared bootstrap-fetch + SSE hook (see src/hooks/useVoiceStatus.ts) — replaces the
-  // old component-local 1s poll of GET /api/voice.
   const { voice, refresh, error } = useVoiceStatus(); const [busy, setBusy] = useState(false);
   const ready = voice?.models?.every((item: any) => item.ready);
   const missing = voice?.models?.filter((item: any) => !item.ready) || [];
@@ -28,4 +26,3 @@ export function VoiceDiagnostics() {
   const { voice, error } = useVoiceStatus();
   return <section className="voice-diagnostics"><h3>Voice</h3>{error ? <p className="muted">{error}</p> : <><div className="voice-models">{voice?.models?.map((model: any) => <div className="voice-model" key={model.id}><span className={model.ready ? 'online-dot' : 'offline-dot'} /><div><b>{model.family}</b><small>{model.ready ? `models\\${model.directory}` : 'Not installed'}</small></div></div>) || <p className="muted">Loading local voice assets…</p>}</div><p className="muted">Mode: {voice?.mode || 'wake'} · State: {voice?.state || 'loading'}</p>{voice?.tuning?.measurements ? <p className="muted">Wake: {voice.tuning.measurements.wake?.executionProvider || 'unknown'} · STT: {voice.tuning.measurements.stt?.inferenceMs || 'n/a'} ms</p> : null}</>}</section>;
 }
-

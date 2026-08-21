@@ -16,7 +16,7 @@
   min-width: 0;
 }
 
-/* ---- Normalized Panel Card ---- */
+/* ---- Panel Card ---- */
 .panel-card {
   background: var(--surface-card);
   border: 1px solid var(--border-primary);
@@ -587,14 +587,7 @@
 .w-10 { width: 40px; } .h-10 { height: 40px; }
 .w-5-5 { width: 22px; } .h-5-5 { height: 22px; }
 
-/* Dot-suffixed variants (className="w-3.5 h-3.5", the literal Tailwind naming
-   most components actually use). A CSS class selector can't contain a bare
-   "." — it has to be escaped as "\." — so `.w-3.5 { }` in a stylesheet is not
-   the same selector as one written that way and silently never matches. Every
-   one of these had zero effect anywhere in the app until this rule existed;
-   the hyphenated versions above (`.w-3-5`) were the only working spelling.
-   Same size scale as the hyphenated set (and matches real Tailwind's 4px
-   step), just reachable by the class name components actually use. */
+/* Literal periods in dot-suffixed utility class names require CSS escaping. */
 .w-1\.5 { width: 6px; } .h-1\.5 { height: 6px; }
 .w-2\.5 { width: 10px; } .h-2\.5 { height: 10px; }
 .w-3\.5 { width: 14px; } .h-3\.5 { height: 14px; }
@@ -723,11 +716,6 @@
 .border-b-0 { border-bottom: 0; }
 
 /* ---- Border Radius ---- */
-/* Bare "rounded" (Tailwind's default-radius shorthand, no suffix) was never
-   defined — only the suffixed variants below were — so every className="rounded"
-   usage across the app (AgentOrchestrationView badges, ModelOrchestrationView
-   checkboxes, SettingsPanel's checkbox, MemoryCenterView pills, ...) silently
-   rendered with square corners. */
 .rounded { border-radius: var(--radius-md); }
 .rounded-sm { border-radius: var(--radius-sm); }
 .rounded-default { border-radius: var(--radius-default); }
@@ -747,10 +735,6 @@
 .select-none { user-select: none; }
 
 /* ---- Form Control Accent ---- */
-/* Native checkbox/radio/range tinting (the real "accent-color" CSS property) —
-   used on several checkboxes/sliders (AgentOrchestrationView's approval checkbox,
-   ModelOrchestrationView's checkboxes/range input) that were left rendering in
-   the browser's default blue with no matching rule defined. */
 .accent-cyan-500 { accent-color: var(--cyan-400); }
 
 /* ---- Opacity ---- */
@@ -791,10 +775,6 @@
 .transition-transform { transition: transform var(--transition-fast); }
 
 /* ---- Animation ---- */
-/* Every Loader2/RefreshCw "in progress" icon across the app is wired up with
-   this class (ProvidersView, MemoryCenterView, McpSkillsView, ...) but it had
-   no matching rule anywhere, so loading states rendered as a static icon
-   instead of spinning. */
 @keyframes spin { to { transform: rotate(360deg); } }
 .animate-spin { animation: spin 1s linear infinite; }
 

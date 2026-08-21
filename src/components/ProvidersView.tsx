@@ -18,8 +18,6 @@ const PROTOCOL_LABELS: Record<ProviderProtocol, string> = {
   'gemini': 'Gemini',
 };
 
-// Maps each protocol to one of the real, defined badge-* color variants
-// (see src/styles/panels.css) so every protocol reads as visually distinct.
 const PROTOCOL_BADGE: Record<ProviderProtocol, BadgeStatus> = {
   'openai-compat': 'emerald',
   'ollama': 'purple',
@@ -71,9 +69,7 @@ function formFromRecord(r: ProviderRecord): FormState {
   return { name: r.name, protocol: r.protocol, base_url: r.base_url, model: r.model, api_key: '', tags: [...r.tags], priority: r.priority };
 }
 
-// Real live probe of the form's current protocol/base URL/API key — either a
-// dropdown of the server's actual reported models, or an honest connection
-// error. Replaces the old free-text guess at a model name.
+// Probe results constrain model selection to the provider's reported models.
 type ProbeState = { status: 'idle' | 'loading' | 'ok' | 'error'; models: string[]; reason?: string };
 
 function ModelField({ form, setForm }: { form: FormState; setForm: React.Dispatch<React.SetStateAction<FormState>> }) {
@@ -328,9 +324,7 @@ export function ProvidersView({ onProvidersChanged }: { onProvidersChanged?: () 
   const [addForm, setAddForm] = useState<FormState>(emptyForm());
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
-  // Which provider GET /api/settings/effective says is actually active —
-  // independent of the CRUD list above, refreshed after any mutation that
-  // could change provider priority/enablement.
+  // Effective settings, independent of the CRUD list, own active-provider state.
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
 
   const refreshActiveProvider = async () => {

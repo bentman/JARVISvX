@@ -7,10 +7,7 @@ import { PanelHeader } from './ui/PanelHeader';
 import { SectionDivider } from './ui/SectionDivider';
 import { StatusBadge } from './ui/StatusBadge';
 
-// The name field is display identity only — which CLI/adapter runs an agent is
-// already shown by its own badge, so baking "(Claude Code)"/"(Codex)"/etc. into
-// the name would be redundant and go stale once CLI becomes an editable selector
-// (see lib/agents/registry.mjs, which dropped the same suffix from the defaults).
+// Agent names are display identity; runtime CLI and adapter are separate.
 const FALLBACK_PROFILES: AgentProfile[] = [
   {
     id: 'architect',
@@ -98,9 +95,7 @@ const FALLBACK_PROFILES: AgentProfile[] = [
   }
 ];
 
-// Mirrors lib/voice-runtime.mjs's localKokoroVoices — used only if GET /api/voice
-// is unreachable when this panel loads, same fallback-on-fetch-failure pattern as
-// FALLBACK_PROFILES above. The real list always comes from the API when available.
+// The API owns the voice list; this local set covers an unavailable bootstrap request.
 const FALLBACK_VOICES = ['af_bella', 'af_sarah', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'];
 
 const FALLBACK_EDITOR_OPTIONS: AgentEditorOptions = {
@@ -111,10 +106,7 @@ const FALLBACK_EDITOR_OPTIONS: AgentEditorOptions = {
   maxInstructionsLength: 255
 };
 
-// Same visual language as ProvidersView's tag pills — a real "lit up" selected
-// state driven by CSS-variable-backed inline styles (this app has no Tailwind
-// compiler, so bg-cyan-400/text-white-style classes silently do nothing; see
-// src/styles/tokens.css for the variables used here).
+// Selected styles use CSS variables because this build has no Tailwind compiler.
 function SelectPill({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
   return (
     <button
@@ -156,10 +148,7 @@ function profileToForm(agent: AgentProfile): AgentFormState {
   };
 }
 
-// Shared editable-fields body used by both the inline "edit an existing agent"
-// form and the "add a new agent" form below — same selectors, same validation
-// ceilings (options.maxNameLength/maxInstructionsLength), because the backend
-// (AgentRegistry) enforces the exact same rules for both create and update.
+// Create and edit forms share backend-provided options and length limits.
 function AgentFieldsEditor({
   form,
   setForm,

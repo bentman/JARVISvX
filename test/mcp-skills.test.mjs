@@ -219,8 +219,7 @@ test('executeMcpTool reports a clear failure instead of a fake success for a ser
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
   const app = createJarvisApp({ database: db });
   await app.initialize();
-  // Bypasses app.addMcpServer's validation to simulate a row from before this
-  // fix existed (or any future unimplemented transport) still in the DB.
+  // Direct insertion models persisted data whose transport has no execution path.
   const server = db.addMcpServer({ name: 'Unknown Transport', type: 'carrier-pigeon', endpoint: 'pigeon://loft', tools: [{ name: 'send_message', description: 'x' }] });
 
   const result = await app.executeMcpTool(server.id, 'send_message', {});
@@ -236,8 +235,7 @@ test('upgradeBuiltInSkills replaces an untouched stub /search or /code row but l
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-skill-upgrade-'));
   const dbPath = path.join(directory, 'jarvis.sqlite');
 
-  // First run: seeds the old stub rows directly, simulating an install that
-  // predates the real implementations.
+  // Seed registered upgrade-source code and a user-customized implementation.
   const oldStubSearch = 'async function execute({ input, app }) {\n  return { success: true, tool: "search", output: `Retrieved live search grounding for: "${input}"` };\n}';
   {
     const db = new JarvisDatabase(dbPath);
@@ -246,9 +244,7 @@ test('upgradeBuiltInSkills replaces an untouched stub /search or /code row but l
     db.close();
   }
 
-  // Second run (a fresh JarvisDatabase over the same file, the same as a
-  // daemon restart): migrate() should upgrade the untouched /search row and
-  // leave the user's customized /code row exactly as they left it.
+  // Reopening applies the recognized upgrade and preserves customized code.
   const db2 = new JarvisDatabase(dbPath);
   const search = db2.skill('skill-search');
   assert.ok(!search.code.includes('Retrieved live search grounding'), '/search should be upgraded to the real implementation');
@@ -260,4 +256,3 @@ test('upgradeBuiltInSkills replaces an untouched stub /search or /code row but l
   db2.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
-

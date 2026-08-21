@@ -12,17 +12,10 @@ export interface ModalProps {
 }
 
 /**
- * Standardized modal dialog with consistent header, body, and footer sections.
- * Features backdrop blur, focus management, and ESC-to-close support.
+ * Modal dialog with header, body, footer, focus management, and Escape handling.
  */
 export function Modal({ isOpen, onClose, title, icon, children, footer, maxWidth = '640px' }: ModalProps) {
-  // Hooks must run on every render regardless of isOpen — callers mount <Modal
-  // isOpen={...}> unconditionally (see MemoryCenterView.tsx) rather than wrapping it
-  // in a conditional, so an isOpen: false -> true flip is a re-render of an already-
-  // mounted instance, not a fresh mount. A hook called only when isOpen is true would
-  // change the hook count between renders of the same instance — a Rules-of-Hooks
-  // violation that throws at runtime the first time the modal opens. The early return
-  // below must stay after every hook call.
+  // Hooks precede the early return because isOpen changes on the same mounted instance.
   React.useEffect(() => {
     if (!isOpen) return;
     const handleEsc = (e: KeyboardEvent) => {

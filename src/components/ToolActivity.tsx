@@ -1,10 +1,7 @@
 import { Zap } from 'lucide-react';
 import type { ToolCallActivity } from '../types';
 
-// Compact, live list of tool calls made during one assistant turn (see the
-// 'tool-call'/'tool-result' SSE events handled in App.tsx's send()). Same
-// treatment as Thinking.tsx: in-memory only, not part of the persisted
-// transcript — a resumed conversation won't show past tool activity.
+// Tool-call events are live message state and are absent from persisted history.
 export function ToolActivity({ calls }: { calls?: ToolCallActivity[] }) {
   if (!calls?.length) return null;
   return (

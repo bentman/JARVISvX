@@ -1,8 +1,7 @@
 export type ProviderProtocol = 'openai-compat' | 'ollama' | 'anthropic' | 'gemini' | 'azure-openai';
 export type ProviderTag = 'local' | 'cloud' | 'fast' | 'reasoning' | 'vision' | 'coding';
 
-// Returned by GET /api/providers (health-checked) — includes tags/priority so the UI
-// can tell a cloud-tagged provider from a local one without relying on a fixed id.
+// Provider tags, rather than opaque IDs, determine local and cloud behavior.
 export type Provider = { id: string; label: string; available: boolean; models: string[]; reason?: string; tags?: ProviderTag[]; priority?: number; protocol?: ProviderProtocol | null };
 
 export interface ProviderRecord {
@@ -19,10 +18,7 @@ export interface ProviderRecord {
   updated_at?: string;
 }
 
-// Returned by GET /api/settings/effective — the single authoritative read for
-// "what will handle the next message." Folds provider priority (the registry),
-// the per-provider model choice, and routing policy (orchestration settings)
-// into one object, so panels read this instead of re-deriving it independently.
+// Effective settings combine provider priority, model choice, and routing policy.
 export interface EffectiveSettings {
   activeProvider: string | null;
   activeModel: string | null;
@@ -42,12 +38,7 @@ export interface ProviderTestResult {
   reason?: string;
 }
 
-// `reasoning` is a client-only, in-memory field for live chain-of-thought display
-// (see the 'reasoning' SSE event in api.streamChat). It is never persisted by the
-// daemon and will not be present on messages loaded from conversation history —
-// by design, reasoning is viewable while streaming, not part of the logged transcript.
-// `toolCalls` is the same kind of client-only, in-memory field, populated from the
-// 'tool-call'/'tool-result' SSE events (see docs/adr-0002-unified-capability-registry.md).
+// Reasoning and tool activity are client-only streaming state and are not persisted.
 export type ToolCallActivity = { name: string; arguments?: Record<string, unknown>; output?: string; status: 'running' | 'complete' };
 export type Message = { id: string; role: 'user' | 'assistant' | 'system'; content: string; reasoning?: string; toolCalls?: ToolCallActivity[]; provider?: string; status: string; created_at: string };
 export type Conversation = { id: string; title: string; created_at: string; updated_at: string; messages?: Message[] };
@@ -64,16 +55,11 @@ export interface AgentProfile {
   voice: string;
   capabilities: string[];
   instructions: string;
-  // True for the seven built-in roles (registry.mjs's DEFAULT_AGENT_PROFILES) —
-  // their name/description/instructions are fixed; only adapter/cli/voice/
-  // capabilities may be edited (see PUT /api/agents/:id). Custom agents (added via
-  // POST /api/agents) have every field editable.
+  // Built-in role identity is fixed; runtime wiring remains editable.
   isBuiltIn?: boolean;
 }
 
-// Backs the Agent Profiles editor (GET /api/agents/editor-options) — the exact
-// selector choices the backend will accept, so the UI never offers one it would
-// then reject.
+// Editor options are the backend's accepted selector values and length limits.
 export interface AgentEditorOptions {
   adapters: string[];
   clis: string[];
@@ -114,8 +100,6 @@ export interface McpServer {
   updatedAt?: string;
 }
 
-// Returned by POST /api/skills/import and GET /api/skills/:id/export — the real
-// skills.sh integration (see lib/skills-source.mjs).
 export interface SkillExport {
   filename: string;
   content: string;
@@ -181,8 +165,7 @@ export interface VoiceRuntimeStatus {
   models?: any[];
   message?: string;
   detail?: string | null;
-  // Returned by GET /api/voice but not yet part of any voice-state SSE payload —
-  // a client needs a full refetch to pick these up (see src/hooks/useVoiceStatus.ts).
+  // These fields require a full status fetch because voice-state events omit them.
   tuning?: any;
   activeSession?: any;
 }
@@ -196,7 +179,6 @@ export interface MemoryItem {
   created_at?: string;
   updated_at?: string;
 }
-
 
 
 

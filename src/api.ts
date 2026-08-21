@@ -58,12 +58,11 @@ const json = async <T>(url: string, options?: RequestInit): Promise<T> => {
 };
 
 export const api = {
-  // Provider health/settings (old endpoint — used by App.tsx bootstrap)
+  // /providers supplies the bootstrap health and settings shape.
   providerHealth: () => json<{ settings: { activeProvider: string; activeModel: string | null; cloudConfigured: boolean }; providers: Provider[] }>('/api/providers'),
   models: (provider?: string) => json<{ provider: string; models: string[] }>(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
 
-  // Provider registry CRUD — namespaced under /provider-registry, distinct from the
-  // legacy /api/providers health+settings endpoint used by providerHealth() above.
+  // Registry CRUD uses /provider-registry to preserve the /providers response contract.
   providers: () => json<ProviderRecord[]>('/api/provider-registry'),
   addProvider: (data: Partial<ProviderRecord> & { api_key?: string }) => json<ProviderRecord>('/api/provider-registry', { method: 'POST', body: JSON.stringify(data) }),
   updateProvider: (id: string, data: Partial<ProviderRecord> & { api_key?: string }) => json<ProviderRecord>(`/api/provider-registry/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -93,8 +92,7 @@ export const api = {
   approveWorkspaceEdit: (id: string) => json<WorkspaceEdit>(`/api/workspace-edits/${id}/approve`, { method: 'POST', body: '{}' }),
   rejectWorkspaceEdit: (id: string) => json<WorkspaceEdit>(`/api/workspace-edits/${id}/reject`, { method: 'POST', body: '{}' }),
   setModel: (provider: string, model: string) => json<void>('/api/settings/model', { method: 'POST', body: JSON.stringify({ provider, model }) }),
-  // The single authoritative read every panel should use for "what's active" —
-  // provider priority, model choice, and orchestration mode folded into one object.
+  // Effective settings combine provider priority, model choice, and routing mode.
   effectiveSettings: () => json<EffectiveSettings>('/api/settings/effective'),
   cancel: (id: string, turnId?: string) => json<{ cancelled: boolean }>(`/api/chat/${id}/cancel`, { method: 'POST', body: JSON.stringify({ turnId }) }),
 
@@ -118,9 +116,7 @@ export const api = {
   deleteSkill: (id: string) => json<{ removed: boolean }>(`/api/skills/${id}`, { method: 'DELETE' }),
   toggleSkill: (id: string) => json<SkillModule>(`/api/skills/${id}/toggle`, { method: 'POST', body: '{}' }),
   executeSkill: (idOrCommand: string, input: string = '') => json<{ success: boolean; slashCommand: string; skillName: string; output: string; durationMs: number }>(`/api/skills/execute`, { method: 'POST', body: JSON.stringify({ command: idOrCommand, input }) }),
-  // Real skills.sh integration (lib/skills-source.mjs) — importSkill fetches an
-  // actual SKILL.md from GitHub ("owner/repo", "owner/repo@ref", or a github.com
-  // URL); exportSkill renders an existing skill back out in the same SKILL.md shape.
+  // Skill import accepts repository coordinates or GitHub URLs; export returns SKILL.md.
   importSkill: (source: string) => json<SkillModule>('/api/skills/import', { method: 'POST', body: JSON.stringify({ source }) }),
   exportSkill: (id: string) => json<SkillExport>(`/api/skills/${id}/export`),
   // Memory Center API
@@ -171,4 +167,3 @@ export const api = {
     return `${baseUrl || window.location.origin}/api/voice-assets`;
   }
 };
-

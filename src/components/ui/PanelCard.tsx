@@ -10,8 +10,7 @@ export interface PanelCardProps {
 }
 
 /**
- * Normalized card container for flyout panels.
- * Provides consistent background, border, radius, padding, and hover behavior.
+ * Card container for flyout-panel background, border, spacing, and hover behavior.
  */
 export function PanelCard({
   children,

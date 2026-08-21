@@ -39,16 +39,21 @@ for product intent.
 
 ## Documentation and code
 
-- No conversation residue in docs, code, or test comments — state the
-  rule or behavior once, plainly; no "as requested," no session-relative
-  pointers, no change-log language.
+- Source code and tests describe the system as it exists. Development
+  narration belongs in chat, commits, pull requests, or durable ADRs.
+- Default to no comment. A comment survives only when it explains a
+  non-obvious invariant, constraint, workaround, or public contract.
+- Source artifacts contain no conversation or session residue. Comments,
+  docstrings, documentation, and tests never reference the development task,
+  coding agent, authoring conversation, implementation phase or diff, previous
+  implementation, temporary planning document, or completed-work document.
 - Positive scope boundaries — say what a module does and which mechanism
   owns it, not what it "is not."
 - Just-in-time cross-references — link between docs only in hub sections
   (README's Architecture/Storage tables, an ADR's own Consequences), and
   only where acting correctly requires reading the target.
 - Non-trivial architecture decisions get a short ADR at
-  `docs/adr-NNNN-<slug>.md`: context, decision, consequences. This repo
+  `docs/adr/adr-NNNN-<slug>.md`: context, decision, consequences. This repo
   does not keep a changelog or capability inventory — git history and the
   current code are the record.
 
