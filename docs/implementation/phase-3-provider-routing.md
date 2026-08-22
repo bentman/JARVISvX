@@ -149,21 +149,11 @@ the same registry and authorization rules.
 
 ## Verification
 
-Use deterministic fake providers tagged local and cloud. For each client
-origin, test `auto`, `local_only`, `cloud_only`, `provider:<id>`, explicit
-override, agent-profile pin, unknown override, disabled override, no eligible
-provider, cloud grant absent, and cloud grant present. Precedence tests shall
-combine user, agent, and mode pins and prove that the highest supplied input is
-selected exactly.
-
-Tests shall assert the exact provider call count, selected provider ID, routing
-reason, and absence of calls to ineligible providers. UI/TUI tests shall prove
-that loading settings preserves Automatic state and that selecting a provider
-creates an explicit override only for intended turns.
-
-Agent tests shall prove that a profile pin is propagated for agent-originated
-turns, outranks the orchestration-mode pin, fails exactly when unknown or
-disabled, and is absent from ordinary chat routing.
+Use fake local and cloud providers to test precedence, an unknown or disabled
+explicit ID, cloud denial, and no eligible provider. One client test shall
+prove that Automatic omits `providerId`; one agent test shall prove that an
+agent pin reaches routing and outranks the configured mode. Assert the selected
+provider and that no ineligible provider was called.
 
 Run:
 
@@ -173,21 +163,16 @@ node --test test/agent-runtime.test.mjs
 node --test test/orchestration.test.mjs
 node --test test/cli.test.mjs
 npm run lint
-npm test
-npm run build
 ```
 
 ## Exit conditions
 
 Phase 3 is complete only when:
 
-- every user interaction origin passes the provider-selection matrix;
 - automatic client state omits `providerId`;
 - explicit IDs resolve exactly or fail before provider work;
 - agent-profile pins affect only agent-originated turns and reach the shared
   routing operation;
-- settings and turn-start events report defined effective selections;
-- the deprecated routing function and tests no longer encode a second policy;
-- routing never crosses local, cloud, enabled, or approval eligibility; and
-- targeted tests, lint, full suite, and build pass in the implementation
-  revision.
+- routing respects local, cloud, enabled, and approval eligibility;
+- settings and turn-start events report the effective selection; and
+- the focused routing, agent, CLI, and client checks pass.

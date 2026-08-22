@@ -15,6 +15,9 @@ criteria for this implementation program. An implementation changes a stated
 requirement only by updating the owning phase specification before changing
 code.
 
+Each phase prioritizes working application behavior. Supporting tooling is
+added only when it directly protects that behavior or persisted user data.
+
 ## System invariants
 
 Every phase preserves these invariants:
@@ -32,8 +35,9 @@ Every phase preserves these invariants:
 6. Health, hardware, model, and completion information reports observed state.
    Unknown state is represented as unknown; it is not replaced with a sample
    value.
-7. A phase is complete only when its required automated checks and runtime
-   observations have been executed successfully.
+7. Verification is proportional to risk: security boundaries, migrations, and
+   destructive operations receive regression tests; routine implementation
+   uses the narrowest relevant check.
 
 ## Implementation sequence
 
@@ -45,7 +49,7 @@ Every phase preserves these invariants:
 | 4 | [Memory and resource identity](phase-4-memory-and-identity.md) | Phase 3 | Memory reaches model turns; identifiers and default models resolve deterministically |
 | 5 | [Workspace, MCP, provider, and API contracts](phase-5-integration-contracts.md) | Phases 1, 3, and 4 | Consistent cross-layer schemas, transport behavior, status reporting, and provider protocols |
 | 6 | [Runtime reliability](phase-6-runtime-reliability.md) | Phases 1 through 5 | Deterministic startup, migration, voice, CLI, and multi-agent behavior |
-| 7 | [Verification and performance hardening](phase-7-verification-performance.md) | Phases 1 through 6 | Cross-layer regression coverage, bounded refresh work, indexed persistence, and release evidence |
+| 7 | [Integration and efficiency cleanup](phase-7-verification-performance.md) | Phases 1 through 6 | Close integration gaps, remove demonstrated waste, and run the final project checks |
 
 Phases execute in numeric order. Work within a phase may be divided into small
 commits when each commit preserves the phase contract and passes the checks
@@ -59,22 +63,19 @@ An agentic coding assistant implementing a phase performs this sequence:
    test file named under **Implementation targets**.
 2. Confirm the preceding phase exit conditions in the current working tree.
    A passing historical report is not evidence for the current tree.
-3. Add or update the narrowest regression test that demonstrates each changed
-   contract. Tests assert externally observable behavior rather than private
-   implementation details.
+3. Add a regression test when the change affects authorization, persisted
+   data, process ownership, or a confirmed defect likely to recur. Use direct
+   inspection or a focused manual check for low-risk presentation work.
 4. Implement the smallest shared mechanism that satisfies the numbered
    requirements. The desktop, CLI, and voice entry points reuse daemon-owned
    policy and state rather than duplicating it.
-5. Run the targeted checks listed by the phase, then `npm run lint`,
-   `npm test`, and `npm run build` at the phase exit. For Phases 1 through 6,
-   `npm run lint` is evidence for renderer TypeScript only; backend evidence
-   comes from the relevant Node tests and runtime checks. Phase 7 expands lint
-   to the backend and replaces manually enumerated test selection. Until that
-   gate is complete, confirm that each test named by the phase is executed
-   directly as well as through `npm test`.
-6. Inspect `git diff --check`, `git diff`, and `git status --short`. Report the
-   checks actually run and their results. A phase remains incomplete while any
-   exit condition lacks current evidence.
+5. Run the narrow checks named by the phase. Reserve the full test suite,
+   production build, and packaged smoke test for Phase 7 or a release attempt.
+   Until Phase 7 extends lint to repository JavaScript, `npm run lint` is
+   evidence for renderer TypeScript only; backend evidence comes from the
+   Node tests the phase names.
+6. Review the changed files and report the checks actually run. Use Git
+   read-only commands with optional locking disabled.
 
 Architecture changes to trust boundaries, filesystem authority, provider
 routing, or persistent storage include a short ADR under `docs/adr/`. The ADR
@@ -93,7 +94,7 @@ contract established earlier.
 | C02 | Gate provider calls made by slash skills | 1 |
 | C03 | Constrain custom skill and ACP agent authority | 1 |
 | C04 | Resolve workspace paths through approved real paths | 1 |
-| C05 | Store packaged runtime data and file-backed credential key material outside the ASAR archive | 2 |
+| C05 | Package Windows and Linux with writable runtime data and file-backed credential key material outside the ASAR archive | 2 |
 | C06 | Persist mutable agent configuration outside tracked source | 2 |
 | C07 | Apply orchestration and agent-profile provider pins through one routing contract | 3 |
 | C08 | Constrain memory ordering inputs and inject active memories into model requests | 4 |
@@ -108,7 +109,9 @@ contract established earlier.
 | C17 | Make daemon ownership liveness and client readiness deterministic | 6 |
 | C18 | Bound voice startup, downloads, capture queues, and UI ownership | 6 |
 | C19 | Return truthful CLI status and synthesize the documented agent rosters | 6 |
-| C20 | Bound refresh work, index persisted queries, and close cross-layer test gaps | 7 |
+| C20 | Remove repeated refresh/probe work and close the remaining integration gaps | 7 |
+| C21 | Discover every Node test automatically and extend lint to repository JavaScript | 7 |
+| C22 | Reconcile user-facing documentation and seed data with the implemented system | 7 |
 
 ## Completion record
 

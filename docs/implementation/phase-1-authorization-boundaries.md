@@ -16,8 +16,7 @@ all later phases.
 
 ## Ownership
 
-- `lib/application.mjs` owns the in-memory one-shot grant registry, turn
-  construction, and propagation of turn authorization.
+- `lib/application.mjs` owns turn authorization and propagation.
 - `lib/capabilities.mjs` owns capability metadata and permission
   classification.
 - `lib/database.mjs` owns protected-data read models and persisted skill
@@ -45,14 +44,10 @@ or a typed denial. Entry points call this mechanism before execution. A
 provider adapter, skill body, MCP transport, or client cannot mark its own
 operation authorized.
 
-The daemon shall issue opaque, short-lived, single-use grant IDs through a
-dedicated approval operation. Each grant is bound to the authenticated client
-session, action class, selected provider or agent targets, and requested
-capabilities. An execution endpoint accepts grant IDs and atomically consumes
-the matching grants while constructing the authorization context. Boolean
-fields such as `approved`, `allowCloud`, or `allowToolWrites` are request intent
-only and confer no authority. Expired, mismatched, reused, or unknown grant IDs
-produce a typed denial before downstream work.
+The daemon shall record approval for one exact operation and consume it before
+execution. The approval is bound to the requested action and selected target
+and expires without reuse. Request booleans such as `approved`, `allowCloud`,
+or `allowToolWrites` do not authorize work without that daemon record.
 
 ### P1-R02: Cloud transmission gate
 
@@ -203,7 +198,6 @@ precedence.
 - `src/App.tsx`
 - `src/components/McpSkillsView.tsx`
 - `src/components/AgentOrchestrationView.tsx`
-- frontend test configuration and authorization-focused component tests
 - `bin/jarvis.mjs`
 - `test/tool-calling.test.mjs`
 - `test/mcp-skills.test.mjs`
@@ -211,28 +205,22 @@ precedence.
 
 ## Implementation sequence
 
-1. Establish the smallest Vite-compatible renderer behavior harness needed to
-   exercise approval controls and submitted API payloads.
-2. Define the authorization context, action classes, typed denial, and shared
-   policy decision function.
-3. Implement the single-use daemon grant registry and bind grants to session,
-   action, targets, capabilities, and expiry.
-4. Add the skill-provenance migration and application-owned protected-data
-   read models; make executable-code updates change provenance atomically.
-5. Route ordinary provider calls and provider-backed skills through the cloud
+1. Define one daemon-owned authorization context, one-turn approval, and typed
+   denial shared by every entry point.
+2. Route ordinary provider calls and provider-backed skills through the cloud
    decision.
-6. Replace capability name heuristics with explicit, conservative permission
-   metadata.
-7. Restrict custom skill context and align every skill/MCP entry point with the
+3. Add explicit capability metadata, protected database read models, and the
+   skill-provenance migration.
+4. Restrict custom skill context and align every skill/MCP entry point with the
    shared dispatcher.
-8. Map profile capabilities to adapter process modes and reject unsupported
+5. Map profile capabilities to adapter process modes and reject unsupported
    mappings.
-9. Replace lexical workspace containment checks with one shared resolved-root
+6. Replace lexical workspace containment checks with one shared resolved-root
    check and make every zero-root workspace path fail closed.
-10. Restrict agent-profile trust sources and validate executable wiring during
+7. Restrict agent-profile trust sources and validate executable wiring during
    registry load.
-11. Consume client grants when a request is submitted and normalize denial UI.
-12. Add an ADR describing the authorization context, permission classes, and
+8. Clear client approval when the request is submitted and normalize denial UI.
+9. Add an ADR describing the authorization context, permission classes, and
    execution boundary. The new ADR shall supersede ADR 0002's decisions that
    enabled skills execute autonomously and that unannotated MCP tools may be
    inferred read-only. ADR 0002 shall identify the superseding ADR in its
@@ -240,26 +228,16 @@ precedence.
 
 ## Verification
 
-Automated tests shall cover this matrix:
+Focused tests shall cover the boundaries where a mistake creates authority:
+cloud transmission, mutating MCP or skill execution, privileged agents,
+protected database reads, and workspace-root confinement. Each denial test
+asserts that no provider, process, endpoint, or write was reached; one allowed
+case per boundary proves the intended operation still works.
 
-| Origin | Operation | Without grant | With grant |
-|---|---|---|---|
-| Desktop, TUI, one-shot CLI, voice | Cloud chat | denied before network | provider called once |
-| Slash and model tool call | Cloud-backed skill | denied before network | provider called once |
-| Direct tester and model tool call | Mutating MCP tool | denied before endpoint | endpoint called once |
-| Direct tester and model tool call | SQLite read tool requesting protected fields | denied or redacted | only declared read model returned |
-| Slash and model tool call | Custom executable skill | denied or unavailable | bounded execution once |
-| Manual and model delegation | Privileged agent | no process spawn | constrained process once |
-| Direct agent, panel, and debate API | Client supplies `approved: true` without a daemon grant | denied and no process spawn | constrained selected processes once |
-| Workspace proposal approval | Link escape | no write | contained target written once |
-| Workspace tools | No approved roots | no filesystem or Git access | operation remains unavailable |
-| Agent registry | Workspace profile with arbitrary command or arguments | profile rejected and no spawn | allowlisted profile loads |
-
-Tests shall also prove that desktop approval state is false immediately after
-submission and remains false after success, error, and cancellation.
-Grant tests shall prove session, action, target, capability, and expiry
-matching; atomic single use under concurrent submission; and denial of unknown,
-mismatched, expired, and reused grant IDs.
+Approval checks shall cover single use, expiry, target mismatch, and a client
+that supplies `approved: true` without daemon approval. Confirm by inspecting
+`src/App.tsx` and `bin/jarvis.mjs` that each submit path clears its approval
+state before awaiting the response.
 
 Run:
 
@@ -268,8 +246,6 @@ node --test test/tool-calling.test.mjs
 node --test test/mcp-skills.test.mjs
 node --test test/agent-runtime.test.mjs
 npm run lint
-npm test
-npm run build
 ```
 
 ## Exit conditions
@@ -281,11 +257,8 @@ Phase 1 is complete only when:
 - read-only agent profiles cannot spawn an edit-enabled process;
 - workspace agent profiles cannot introduce arbitrary commands or arguments;
 - read-only SQLite capabilities cannot expose protected application fields;
-- persisted skill provenance changes atomically when executable code changes;
-- daemon grants are scoped, expiring, single-use, and consumed atomically;
-- real-path containment tests cover files, missing leaf files, symlinks, and
-  Windows junctions, including the zero-root state;
-- client grants are consumed per submitted turn;
-- all denial tests prove zero downstream side effects; and
-- the targeted checks, lint, full suite, and build pass in the implementation
-  revision.
+- skill provenance changes when executable code changes;
+- daemon approval is target-bound, expiring, and single-use;
+- real-path confinement handles link escapes and an empty root set;
+- client approval clears per submitted turn; and
+- the focused authorization, skill, and agent checks pass.

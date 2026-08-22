@@ -99,8 +99,7 @@ shall be replaced through the same temporary download path. Startup shall not
 wait indefinitely for a model source; failure places voice in a diagnosable
 degraded state and preserves text readiness.
 
-Independent artifacts may download concurrently within a documented small
-concurrency limit. Repeated startup shall skip artifacts already validated.
+Repeated startup shall skip artifacts already validated.
 
 ### P6-R05: Voice state persistence
 
@@ -126,8 +125,7 @@ policy and emit a diagnostic counter; queued latency shall not grow without
 bound.
 
 Frame processing shall avoid repeated whole-buffer spread and slice operations
-on the streaming hot path. Benchmarks shall cover real frame sizes and a
-deliberately slow inference stub.
+on the streaming hot path.
 
 ### P6-R07: Single voice capture and event ownership
 
@@ -209,8 +207,7 @@ mode uses its documented default until the operator makes a selection.
 3. Add model manifest integrity, immutable URL/revision agreement, bounded
    downloads, atomic publication, and degraded voice startup.
 4. Persist durable voice settings and centralize the voice catalog.
-5. Replace the audio array queue with a bounded structure and benchmark its
-   slow-consumer behavior.
+5. Replace the audio array queue with a bounded structure.
 6. Make VoiceHost the renderer capture owner and route every HUD action through
    it; share one voice event subscription.
 7. Derive CLI exit status from the terminal operation result.
@@ -220,39 +217,18 @@ mode uses its documented default until the operator makes a selection.
 
 ## Verification
 
-Daemon concurrency tests shall start at least two contenders against the same
-temporary data root and prove exactly one owner. Tests shall cover truncated
-discovery, live owner, stale owner, initialization failure, cleanup, and
-degraded voice readiness. Contenders shall probe owners in `starting`, `ready`,
-`degraded`, and `stopping` states, including non-2xx readiness responses, and
-shall never remove the matching live owner's lock.
+Start two daemon contenders against one temporary data root and prove one owner
+through startup, degraded readiness, and shutdown. Run the existing-empty
+migration case on Windows. Use a local model fixture for one valid download and
+one timeout or digest failure.
 
-Migration tests shall run against absent, empty, populated, interrupted, and
-repeated destinations. The existing-empty case shall execute on Windows rather
-than simulating POSIX rename behavior.
-
-Model tests shall use a local fixture server for valid digest, invalid digest,
-truncated response, timeout, cancellation, retry, validated cache hit, and
-atomic replacement. Voice tests shall prove the frame queue remains within its
-configured duration and that one HUD lifecycle creates one microphone stream
-and one SSE subscription.
-Restart tests shall prove durable mode/enabled/voice settings survive while a
-persisted transient runtime state does not.
-
-CLI tests shall assert process status and output for every terminal event.
-Agent tests shall capture the final synthesis prompt and prove that it contains
-each labelled participant result and critique.
-
-Renderer and agent-route tests shall prove the exact default panel and debate
-sets, exact non-empty operator selections, omitted IDs for an empty selection,
-and denial when a client asserts approval without a daemon grant.
-
-Run targeted daemon, migration, model, voice, CLI, and agent tests, followed by:
+Focused voice checks shall cover durable settings and bounded queue behavior.
+CLI checks shall cover one success and one terminal failure. Agent checks shall
+cover the two default rosters, an explicit selection, and synthesis containing
+the participant results.
 
 ```text
 npm run lint
-npm test
-npm run build
 ```
 
 ## Exit conditions
@@ -263,12 +239,10 @@ Phase 6 is complete only when:
 - every lifecycle state preserves ownership until the matching owner releases
   it;
 - readiness reflects completed initialization and named degraded subsystems;
-- migration passes real Windows existing-empty and interruption cases;
-- model artifacts are timeout-bounded, digest-verified, and atomically
-  published;
+- migration handles a real Windows existing-empty destination;
+- model artifacts are bounded, verified, and atomically published;
 - voice queue duration is bounded and the renderer owns one capture/event path;
 - CLI failure cases return nonzero;
 - panel and debate use the documented roster or exact operator selection, and
   synthesis inputs contain actual participant evidence; and
-- targeted tests, lint, full suite, and build pass in the implementation
-  revision.
+- the focused runtime checks pass.

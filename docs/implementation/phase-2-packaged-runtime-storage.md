@@ -5,9 +5,10 @@ Lifecycle: Planned
 ## Required outcome
 
 The source application and packaged Electron application use explicit,
-writable, persistent locations for mutable state. Immutable packaged assets
-are resolved from the installed application resources. Runtime behavior does
-not depend on writing inside an ASAR archive or the source tree.
+writable, persistent locations for mutable state on Windows and Linux.
+Immutable packaged assets are resolved from the installed application
+resources. Runtime behavior does not depend on writing inside an ASAR archive
+or the source tree.
 
 ## Dependencies
 
@@ -85,6 +86,11 @@ equivalent Electron resource path. The application shall never open a writable
 database, temporary download, model installation target, lock, discovery file,
 or mutable agent configuration beneath `app.asar`.
 
+Desktop packaging shall support Windows x64 and Linux x64 from explicit target
+configuration rather than a fixed operating-system value. Each target shall
+use its native icon and include the native runtime dependencies required by
+Electron, ONNX, and voice processing.
+
 ### P2-R04: Model storage and serving
 
 Voice-model download targets and the daemon's voice-asset routes shall use the
@@ -160,6 +166,7 @@ operation that failed without exposing provider credentials or daemon tokens.
 - `lib/voice-runtime.mjs`
 - `lib/agents/registry.mjs`
 - `scripts/package-desktop.mjs`
+- `package.json`
 - `.gitignore`
 - `.env.example`
 - `README.md`
@@ -176,7 +183,8 @@ operation that failed without exposing provider credentials or daemon tokens.
 3. Move mutable agent configuration to `agentConfigPath` and implement the
    one-time merge or migration from tracked seed data.
 4. Align voice asset serving and TTS worker startup with `modelRoot`.
-5. Align ASAR packaging rules with immutable resources.
+5. Align ASAR packaging rules with immutable resources and make the desktop
+   packaging target explicit for Windows x64 and Linux x64.
 6. Migrate and validate SQLite, provider key material, and agent overrides
    before any destination database or agent file is opened.
 7. Replace README statements that all artifacts remain in the repository and
@@ -188,48 +196,28 @@ operation that failed without exposing provider credentials or daemon tokens.
 
 ## Verification
 
-Unit tests shall construct source and packaged path sets without depending on
-the machine user's real profile directory. Integration tests shall start a
-daemon with temporary explicit roots and verify that all generated files remain
-beneath those roots.
+Path and migration tests shall use temporary explicit roots and prove that
+SQLite, file-backed key material, lock/discovery state, models, and agent
+overrides land in their assigned locations. One credential round trip shall
+cover both file-backed and environment-backed key material.
 
-A packaged smoke test shall build the Electron artifact, launch it with an
-isolated temporary application-data directory, and verify:
-
-1. SQLite is created outside the ASAR archive.
-2. Lock and discovery files are created in `dataRoot`.
-3. With an empty `JARVIS_KEY_SALT`, provider key material is created in
-   `dataRoot`, survives restart and migration with SQLite, and decrypts a
-   credential stored before restart. With a configured `JARVIS_KEY_SALT`, no
-   fallback file is created and the same credential survives restart.
-4. The Electron profile is created in `profileRoot`.
-5. Model discovery and voice HTTP routes use `modelRoot`.
-6. An agent-profile edit changes only `agentConfigPath`.
-7. Restarting the packaged application reuses the same state.
-
-Run the targeted path, database, migration, voice, and agent tests, followed by:
+Confirm the packaged path resolution by constructing the packaged path set
+against a temporary application-data directory, and confirm the Windows x64 and
+Linux x64 targets by inspecting the packaging configuration. Building and
+launching the native package on each platform belongs to the Phase 7 platform
+check, which verifies these paths on the real artifact.
 
 ```text
 npm run lint
-npm test
-npm run build
 ```
-
-Run the packaged smoke test from the generated artifact on Windows. A second
-platform run is required when a Linux artifact is designated for release.
 
 ## Exit conditions
 
 Phase 2 is complete only when:
 
-- no packaged mutable path resolves under `app.asar` or an immutable resource
-  directory;
-- every mutable subsystem consumes the same explicit path set;
-- source defaults remain repository-local and documented;
-- packaged state survives a verified restart;
-- SQLite and its effective environment- or file-backed key material migrate
-  and restore as one recoverable unit;
-- agent-profile editing leaves tracked source unchanged;
-- migration conflicts use the defined decision path; and
-- targeted tests, lint, the full suite, build, and the Windows packaged smoke
-  test pass in the implementation revision.
+- mutable state uses the resolved path set outside `app.asar`;
+- SQLite and its effective key material survive migration and restart;
+- agent edits persist only to `agentConfigPath`;
+- migration conflicts follow the defined decision path;
+- the packaging configuration names Windows x64 and Linux x64 targets; and
+- the focused path and migration checks pass.

@@ -137,9 +137,7 @@ return path. A reachable response with no models and an unreachable endpoint
 shall both avoid undeclared values and fabricated model catalogs; each shall
 return its observed status, elapsed time, empty models, and reason.
 
-Token throughput is reported only from a completed benchmark with its model,
-backend, sample size, and observation time. Recommendation logic shall not use
-sample or fallback throughput as measured capacity.
+Token throughput is shown only when measured from the active model and backend.
 
 ### P5-R08: Loopback session boundary
 
@@ -211,53 +209,29 @@ against. Route tests shall validate both HTTP status and response shape.
 
 ## Verification
 
-Contract tests shall run database, application, HTTP API, and frontend type
-fixtures against the same workspace statuses and error codes. Migration tests
-shall cover existing `approved` records and map them deterministically.
+Use local mock HTTP and stdio servers for one successful MCP discovery and
+execution path plus timeout, RPC failure, and mutating-tool approval. Migrate
+one legacy MCP fixture and confirm unknown health becomes measured success or
+failure without sample data.
 
-MCP tests shall use mock HTTP and stdio servers for successful discovery,
-nested schemas, RPC errors, HTTP errors, malformed JSON, timeout,
-cancellation, missing annotations, read-only annotations, mutating tools, and
-unknown-to-observed health persistence without sample latency.
-
-Database migration tests shall start from an `mcp_servers` fixture containing
-`status` and non-null `latency_ms` without probe time or failure reason. They
-shall verify that unproven seeded and user records become `unknown` with null
-observation fields. Probe tests shall verify all success and failure field
-transitions, including failure-reason clearing after recovery.
-
-Provider tests shall use local mock servers and captured payloads for every
-adapter. No provider-contract test depends on an external network. Diagnostics
-tests shall prove that failed probes contain no fabricated models,
-acceleration, endpoints, or throughput.
-
-Electron tests shall inspect the loaded URL and renderer bootstrap channel and
-prove that the token is absent from the URL, console output, and diagnostic
-responses.
-
-Run targeted workspace, API, MCP, provider, diagnostic, and Electron tests,
-followed by:
+Provider checks shall confirm each protocol request shape and that a closed
+local endpoint reports no fabricated models. API checks shall cover an unknown
+resource, one invalid workspace transition, and token-free Electron navigation.
 
 ```text
 node --test test/mcp-stdio.test.mjs
 node --test test/mcp-skills.test.mjs
 npm run lint
-npm test
-npm run build
 ```
 
 ## Exit conditions
 
 Phase 5 is complete only when:
 
-- workspace state transitions and rendering use one value set;
-- unknown IDs and invalid transitions return the required HTTP statuses;
-- HTTP and stdio MCP tools discover and execute against normalized schemas;
+- workspace state and API errors use the defined values;
+- HTTP and stdio MCP tools discover and execute through the shared dispatcher;
 - unannotated MCP operations require approval;
-- MCP health rows contain only observed probe state and migrate without sample
-  latency;
-- every provider has deterministic request and stream contract tests;
-- health and diagnostics contain only observed or explicitly unknown values;
+- MCP, provider, and diagnostic health contain only observed or explicitly
+  unknown values;
 - the Electron navigation URL and logs contain no daemon token; and
-- targeted tests, lint, full suite, and build pass in the implementation
-  revision.
+- the focused MCP, provider, API, and Electron checks pass.

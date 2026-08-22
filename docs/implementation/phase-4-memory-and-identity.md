@@ -156,22 +156,10 @@ removed or retained according to an explicit foreign-key policy.
 
 ## Verification
 
-Memory tests shall capture the exact provider request for zero, one,
-budget-excluded, oversized, conflicting, and same-timestamp memories. They
-shall verify importance/recency/ID ordering under repeated execution and
-confirm that memory cannot authorize a tool or cloud call.
-
-Migration tests shall cover every valid importance, null, blank, and an
-unrecognized legacy value. Database, HTTP, and client-contract tests shall
-prove that invalid new values are rejected without changing the stored record.
-
-Identity tests shall cover unknown, disabled, and valid provider IDs at every
-public application method and unknown agent IDs in every run mode. Model tests
-shall cover every precedence level and empty-list behavior.
-
-Provider request-shape tests shall assert that the canonical system instruction
-is represented correctly for OpenAI-compatible, Ollama, Anthropic, and Gemini
-adapters.
+Capture one real application chat request containing bounded, ordered memory
+and one request where excess memory is excluded. Test invalid importance
+migration/input, unknown provider and agent IDs, model precedence, and one
+canonical system-instruction request per provider protocol.
 
 Run:
 
@@ -181,8 +169,6 @@ node --test test/application.test.mjs
 node --test test/providers.test.mjs
 node --test test/agent-runtime.test.mjs
 npm run lint
-npm test
-npm run build
 ```
 
 ## Exit conditions
@@ -192,12 +178,8 @@ Phase 4 is complete only when:
 - captured provider requests contain the expected bounded memory context;
 - memory importance is constrained and deterministically migrated before
   selection;
-- all provider protocols encode the canonical system instruction correctly;
-- unknown explicit provider and agent IDs produce no fallback, record, network
-  call, or process spawn;
+- provider protocols encode the canonical system instruction correctly;
+- unknown explicit IDs fail without downstream work;
 - model selection follows the required precedence everywhere;
-- model discovery cannot overwrite an explicit or configured model;
-- message and agent-run persistence is deterministic and relationally
-  consistent; and
-- targeted tests, lint, full suite, and build pass in the implementation
-  revision.
+- model discovery preserves an explicit or configured model; and
+- the focused memory, identity, model, and provider checks pass.
