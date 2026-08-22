@@ -55,10 +55,10 @@
     "extract-zip": "^2.0.1"
   },
   "allowScripts": {
-    "onnxruntime-node@1.21.0": false,
-    "protobufjs@7.6.5": true,
-    "sharp@0.34.5": true,
-    "esbuild@0.28.2": true,
-    "electron@41.10.6": true
+    "onnxruntime-node": true,
+    "protobufjs": true,
+    "sharp": true,
+    "esbuild": true,
+    "electron": true
   }
 }
