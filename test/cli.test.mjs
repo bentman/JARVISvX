@@ -29,7 +29,7 @@ async function withDaemon(fn) {
   const { startDaemon } = await import('../lib/daemon.mjs');
   const daemon = await startDaemon({ port: 0, token: 'cli-test-token' });
   try {
-    await fn({ directory, env: { ...process.env, JARVIS_DATA_DIR: directory, JARVIS_MODEL_DIR: modelDir } });
+    await fn({ directory, daemon, env: { ...process.env, JARVIS_DATA_DIR: directory, JARVIS_MODEL_DIR: modelDir } });
   } finally {
     await daemon.close();
     await fs.rm(directory, { recursive: true, force: true });
@@ -187,5 +187,22 @@ test('jarvis ask reads a piped message from stdin and surfaces the real daemon e
     assert.ok(!piped.stderr.includes('Usage: jarvis ask'));
     const events = piped.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
     assert.ok(events.some((event) => event.type === 'error'));
+  });
+});
+
+test('automatic selection omits providerId from the request; a pinned provider sends it', async () => {
+  await withDaemon(async ({ daemon, env }) => {
+    const received = [];
+    const chat = daemon.jarvis.chat.bind(daemon.jarvis);
+    daemon.jarvis.chat = async function* (options) {
+      received.push(Object.prototype.hasOwnProperty.call(options, 'providerId') ? options.providerId : '<absent>');
+      yield* chat(options);
+    };
+
+    await cli(['ask', 'hello'], { env });
+    assert.equal(received[0], '<absent>', 'automatic sends no providerId');
+
+    await cli(['ask', 'hello', '--provider', 'pinned-id'], { env });
+    assert.equal(received[1], 'pinned-id', 'a pinned provider is serialized');
   });
 });

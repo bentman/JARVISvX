@@ -19,6 +19,12 @@ function tempDb() {
   return { directory, db, close: () => { db.close(); fs.rmSync(directory, { recursive: true, force: true }); } };
 }
 
+// chat() resolves its provider through one selection operation; tests stub that.
+const useProvider = (app, provider) => {
+  app.getProvider = () => provider;
+  app.selectProvider = () => ({ provider, source: 'user', reason: `Test provider ${provider.id}` });
+};
+
 test('buildCapabilityRegistry sources MCP-declared tools plus the two core app tools, deduped and classified', () => {
   const { db, close } = tempDb();
   try {
@@ -73,7 +79,7 @@ test('chat() executes a read-only tool call mid-turn and continues the conversat
   try {
     const app = createJarvisApp({ database: db });
     let round = 0;
-    app.getProvider = () => ({
+    useProvider(app, {
       id: 'fake-tools', label: 'Fake tool-calling provider', supportsToolCalling: true,
       async listModels() { return ['fake-model']; },
       async *streamChat({ messages }) {
@@ -121,7 +127,7 @@ test('chat() pauses a turn and requests approval before running a write tool, th
     const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(directory, 'root-')));
     await app.addRoot(rootDir);
 
-    app.getProvider = () => ({
+    useProvider(app, {
       id: 'fake-writer', label: 'Fake writer provider', supportsToolCalling: true,
       async listModels() { return ['fake-model']; },
       async *streamChat() { yield { type: 'tool_call', id: 'call-1', name: 'write_workspace_file', arguments: { path: path.join(rootDir, 'note.txt'), content: 'hello' } }; },
@@ -147,7 +153,7 @@ test('chat() leaves Anthropic/Gemini-style (non-tool-calling) providers unaffect
   const { db, close } = tempDb();
   try {
     const app = createJarvisApp({ database: db });
-    app.getProvider = () => ({
+    useProvider(app, {
       id: 'fake-plain', label: 'Fake plain provider',
       async listModels() { return ['fake-model']; },
       async *streamChat({ messages, tools }) {
@@ -266,7 +272,7 @@ test('chat() invokes a skill through the tool-calling loop the same way /slash w
   try {
     const app = createJarvisApp({ database: db });
 
-    app.getProvider = () => ({
+    useProvider(app, {
       id: 'fake-skill-caller', label: 'Fake provider', supportsToolCalling: true,
       async listModels() { return ['fake-model']; },
       async *streamChat({ messages }) {
@@ -326,7 +332,7 @@ test('chat() pauses agent delegation for approval, then runs the delegated agent
     await app.addRoot(fs.realpathSync(fs.mkdtempSync(path.join(directory, 'root-'))));
     useProcessAgent(app, 'researcher', (prompt) => `researcher findings: ${prompt}`);
 
-    app.getProvider = () => ({
+    useProvider(app, {
       id: 'fake-agent-caller', label: 'Fake provider', supportsToolCalling: true,
       async listModels() { return ['fake-model']; },
       async *streamChat({ messages }) {
@@ -361,7 +367,7 @@ test('delegating to a privileged agent needs both the capability approval and th
     await app.addRoot(fs.realpathSync(fs.mkdtempSync(path.join(directory, 'root-'))));
     useProcessAgent(app, 'builder', () => 'builder made the change');
 
-    app.getProvider = () => ({
+    useProvider(app, {
       id: 'fake-builder-caller', label: 'Fake provider', supportsToolCalling: true,
       async listModels() { return ['fake-model']; },
       async *streamChat({ messages }) {

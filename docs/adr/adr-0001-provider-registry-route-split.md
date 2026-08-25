@@ -40,3 +40,7 @@ provider mutation. `src/api.ts` exposes the health contract through
   Express dispatch.
 - Contract consolidation requires coordinated migration of the daemon,
   desktop client, CLI client, and external API consumers.
+- Neither route family decides which provider a turn uses; that selection is
+  owned separately (see
+  [ADR 0005](adr-0005-turn-provider-selection.md)), and `settings` reports its
+  outcome rather than registry order.

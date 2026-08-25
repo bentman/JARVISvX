@@ -249,11 +249,16 @@ test('PolicyGate evaluates capability intersection and workspace boundary', asyn
 test('Adapters probe status and generate tokens', async () => {
   const acp = new AcpAdapter();
   const processAdapter = new ProcessAdapter({
-    getProvider: () => ({
-      async *streamChat() {
-        yield 'Hello from ProcessAdapter';
-        yield { type: 'token', value: ' with object token compatibility' };
-      }
+    selectProvider: () => ({
+      provider: {
+        id: 'local-1',
+        async *streamChat() {
+          yield 'Hello from ProcessAdapter';
+          yield { type: 'token', value: ' with object token compatibility' };
+        }
+      },
+      source: 'auto-local',
+      reason: 'Test provider',
     })
   });
 
@@ -278,7 +283,7 @@ test('ProcessAdapter blocks a cloud-tagged provider without a cloud grant, and p
     tags: ['cloud'],
     async *streamChat() { yield 'should never stream without approval'; }
   };
-  const processAdapter = new ProcessAdapter({ getProvider: () => cloudProvider });
+  const processAdapter = new ProcessAdapter({ selectProvider: () => ({ provider: cloudProvider, source: 'auto-escalated', reason: 'Test provider' }) });
   const agent = { id: 'researcher', name: 'Researcher', voice: 'af_sarah', instructions: '', capabilities: [] };
 
   const blocked = [];
@@ -314,6 +319,40 @@ test('executeAgentRun threads the turn authorization and effective capabilities 
     assert.equal(received.authorization, authorization);
     assert.equal(received.processMode, 'read-only', 'a read-only profile maps to the read-only process mode');
     assert.deepEqual(JSON.parse(run.effective_capabilities), ['workspace.read']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('an agent profile pin reaches routing and outranks the configured mode', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initialize();
+  try {
+    const local = app.addProvider({ name: 'Local', protocol: 'openai-compat', base_url: 'http://127.0.0.1:1/v1', model: 'local-model', tags: ['local'], priority: 1 });
+    const pinned = app.addProvider({ name: 'Pinned', protocol: 'openai-compat', base_url: 'http://127.0.0.1:2/v1', model: 'pinned-model', tags: ['local'], priority: 90 });
+    app.updateOrchestrationSettings({ mode: `provider:${local.id}` });
+
+    // An unpinned agent follows the configured mode.
+    assert.equal(app.selectProvider({}).provider.id, local.id);
+    // The executing profile's pin outranks it, and only for that turn's input.
+    assert.equal(app.selectProvider({ agentProviderId: pinned.id }).provider.id, pinned.id);
+
+    const researcher = app.agentRuntime.registry.get('researcher');
+    app.agentRuntime.registry.profiles.set('researcher', { ...researcher, adapter: 'process', provider: pinned.id, capabilities: ['workspace.read'] });
+
+    let seen;
+    app.agentRuntime.adapters.set('process', {
+      async *invoke({ agent, runId, agentProviderId }) {
+        seen = agentProviderId;
+        yield { type: 'token', runId, agentId: agent.id, value: 'ok' };
+        yield { type: 'completed', runId, agentId: agent.id };
+      }
+    });
+
+    await app.executeAgentRun({ agentId: 'researcher', objective: 'test', mode: 'solo' });
+    assert.equal(seen, pinned.id, 'the profile pin reaches the adapter');
+    // Desktop, TUI, and CLI chat have no agent profile, so the pin does not apply there.
+    assert.equal(app.selectProvider({}).provider.id, local.id);
   } finally {
     cleanup();
   }

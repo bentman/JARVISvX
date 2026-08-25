@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
-import { evaluateTurnRouting, getHardwareProfile, pingLocalEndpoint, routeTurn } from '../lib/orchestrator.mjs';
+import { getHardwareProfile, pingLocalEndpoint, routeTurn } from '../lib/orchestrator.mjs';
 
 test('database persists and updates orchestration settings', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-orch-db-'));
@@ -38,32 +38,6 @@ test('getHardwareProfile detects system CPU cores and computes model recommendat
   assert.ok(profile.cpuCores >= 1, 'CPU cores should be at least 1');
   assert.ok(profile.ramGB >= 1, 'RAM should be at least 1 GB');
   assert.ok(profile.recommendedLocalModel.length > 0, 'Recommended model should be computed');
-});
-
-test('evaluateTurnRouting evaluates execution policies correctly', () => {
-  const config = {
-    mode: 'auto',
-    autoEscalateRules: { maxCharCount: 20, requireSearch: true, requireCodeExecution: true }
-  };
-
-  // Short simple query -> Local
-  const localRes = evaluateTurnRouting('hello world', config, true, true);
-  assert.equal(localRes.shouldCloudEscalate, false);
-  assert.equal(localRes.targetProvider, 'local');
-
-  // Long prompt exceeding maxCharCount -> Cloud
-  const longRes = evaluateTurnRouting('this is a very long prompt that exceeds twenty characters', config, true, true);
-  assert.equal(longRes.shouldCloudEscalate, true);
-  assert.equal(longRes.targetProvider, 'cloud');
-
-  // Coding prompt -> Cloud
-  const codeRes = evaluateTurnRouting('write a typescript function', config, true, true);
-  assert.equal(codeRes.shouldCloudEscalate, true);
-
-  // Local-only policy enforces local execution
-  const localOnlyRes = evaluateTurnRouting('write a typescript function', { ...config, mode: 'local_only' }, true, true);
-  assert.equal(localOnlyRes.shouldCloudEscalate, false);
-  assert.equal(localOnlyRes.targetProvider, 'local');
 });
 
 test('pingLocalEndpoint detects OpenAI-compatible and Ollama model endpoints', async (t) => {
@@ -148,54 +122,53 @@ test('orchestration mode round-trips through settings() after an update', () => 
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
-test('routeTurn() branch behavior with a fake registry', () => {
+test('routeTurn() resolves precedence without falling through', () => {
   const provider = (id, tags, priority = 50) => ({ id, label: id, tags, priority });
-  const makeRegistry = (providers) => ({
+  const local = provider('local-1', ['local'], 10);
+  const cloud = provider('cloud-1', ['cloud'], 20);
+  const makeRegistry = (providers, disabled = []) => ({
     get: (id) => providers.find((p) => p.id === id) || null,
     getByTags: (tags) => providers.filter((p) => tags.every((tag) => p.tags.includes(tag))).sort((a, b) => a.priority - b.priority),
     list: () => [...providers].sort((a, b) => a.priority - b.priority),
+    status: (id) => (providers.some((p) => p.id === id) ? 'enabled' : disabled.includes(id) ? 'disabled' : 'unknown'),
   });
+  const registry = makeRegistry([local, cloud], ['disabled-1']);
 
-  const local = provider('local-1', ['local'], 10);
-  const cloud = provider('cloud-1', ['cloud'], 20);
-  const registry = makeRegistry([local, cloud]);
+  // Precedence: user, then agent pin, then mode pin.
+  assert.equal(routeTurn('hi', { mode: 'cloud_only', userOverrideProvider: 'local-1', allowCloud: false }, registry).provider.id, 'local-1');
+  assert.equal(routeTurn('hi', { mode: 'cloud_only', agentProviderOverride: 'local-1', allowCloud: false }, registry).provider.id, 'local-1');
+  assert.equal(routeTurn('hi', { mode: 'provider:cloud-1', allowCloud: false }, registry).provider.id, 'cloud-1');
+  assert.equal(routeTurn('hi', { mode: 'provider:local-1', userOverrideProvider: 'cloud-1' }, registry).source, 'user', 'a user id outranks the mode pin');
+  assert.equal(routeTurn('hi', { mode: 'provider:local-1', agentProviderOverride: 'cloud-1' }, registry).provider.id, 'cloud-1', 'an agent pin outranks the mode pin');
 
-  // 1. Explicit per-message override wins over everything else, including policy mode.
-  const override = routeTurn('hi', { mode: 'cloud_only', userOverrideProvider: 'local-1', allowCloud: false }, registry);
-  assert.equal(override.provider.id, 'local-1');
+  // A supplied id that does not resolve refuses; it never drops to a lower source.
+  for (const context of [{ userOverrideProvider: 'nope' }, { agentProviderOverride: 'nope' }, { mode: 'provider:nope' }]) {
+    const refused = routeTurn('hi', { mode: 'auto', ...context }, registry);
+    assert.equal(refused.provider, null);
+    assert.equal(refused.code, 'unknown_provider');
+  }
+  assert.equal(routeTurn('hi', { userOverrideProvider: 'disabled-1' }, registry).code, 'provider_disabled');
 
-  // 3. Pinned provider via mode: 'provider:<id>'.
-  const pinned = routeTurn('hi', { mode: 'provider:cloud-1', allowCloud: false }, registry);
-  assert.equal(pinned.provider.id, 'cloud-1');
+  // Policy modes never cross a tag boundary to produce an answer.
+  assert.equal(routeTurn('hi', { mode: 'local_only' }, registry).provider.id, 'local-1');
+  const noLocal = routeTurn('hi', { mode: 'local_only' }, makeRegistry([cloud]));
+  assert.equal(noLocal.code, 'no_eligible_provider');
+  assert.equal(noLocal.mode, 'local_only');
 
-  // 4. local_only picks a local-tagged provider.
-  const localOnly = routeTurn('hi', { mode: 'local_only' }, registry);
-  assert.equal(localOnly.provider.id, 'local-1');
+  assert.equal(routeTurn('hi', { mode: 'cloud_only', allowCloud: false }, registry).code, 'cloud_approval_required');
+  assert.equal(routeTurn('hi', { mode: 'cloud_only', allowCloud: true }, registry).provider.id, 'cloud-1');
+  assert.equal(routeTurn('hi', { mode: 'cloud_only', allowCloud: true }, makeRegistry([local])).code, 'no_eligible_provider');
 
-  // 4b. local_only with no local provider fails loudly — never substitutes cloud.
-  const noLocalRegistry = makeRegistry([cloud]);
-  const localOnlyNoLocal = routeTurn('hi', { mode: 'local_only' }, noLocalRegistry);
-  assert.equal(localOnlyNoLocal.provider, null);
-  assert.ok(!localOnlyNoLocal.needsCloudApproval, 'local_only failure is not a cloud-approval prompt');
-
-  // 5. cloud_only without approval returns needsCloudApproval, no provider.
-  const cloudOnlyDenied = routeTurn('hi', { mode: 'cloud_only', allowCloud: false }, registry);
-  assert.equal(cloudOnlyDenied.provider, null);
-  assert.equal(cloudOnlyDenied.needsCloudApproval, true);
-
-  // 5b. cloud_only with approval picks the cloud-tagged provider.
-  const cloudOnlyAllowed = routeTurn('hi', { mode: 'cloud_only', allowCloud: true }, registry);
-  assert.equal(cloudOnlyAllowed.provider.id, 'cloud-1');
-
-  // 6. auto mode escalates to cloud only when allowed AND a rule matches.
+  // Auto escalates only when a rule matches and the grant is present.
   const rules = { maxCharCount: 10, requireSearch: false, requireCodeExecution: false };
-  const autoShort = routeTurn('hi', { mode: 'auto', allowCloud: true, autoEscalateRules: rules }, registry);
-  assert.equal(autoShort.provider.id, 'local-1', 'short prompt stays local even when cloud is allowed');
+  const long = 'this prompt is deliberately longer than the threshold';
+  assert.equal(routeTurn('hi', { mode: 'auto', allowCloud: true, autoEscalateRules: rules }, registry).source, 'auto-local');
+  assert.equal(routeTurn(long, { mode: 'auto', allowCloud: false, autoEscalateRules: rules }, registry).provider.id, 'local-1');
+  assert.equal(routeTurn(long, { mode: 'auto', allowCloud: true, autoEscalateRules: rules }, registry).source, 'auto-escalated');
 
-  const autoLongNoApproval = routeTurn('this prompt is deliberately longer than the threshold', { mode: 'auto', allowCloud: false, autoEscalateRules: rules }, registry);
-  assert.equal(autoLongNoApproval.provider.id, 'local-1', 'long prompt does not escalate without approval');
-
-  const autoLongApproved = routeTurn('this prompt is deliberately longer than the threshold', { mode: 'auto', allowCloud: true, autoEscalateRules: rules }, registry);
-  assert.equal(autoLongApproved.provider.id, 'cloud-1', 'long prompt escalates to cloud once approved');
+  // Auto with no local provider needs the grant before the cloud one is eligible.
+  const cloudOnlyRegistry = makeRegistry([cloud]);
+  assert.equal(routeTurn('hi', { mode: 'auto' }, cloudOnlyRegistry).code, 'cloud_approval_required');
+  assert.equal(routeTurn('hi', { mode: 'auto', allowCloud: true }, cloudOnlyRegistry).provider.id, 'cloud-1');
+  assert.equal(routeTurn('hi', { mode: 'auto' }, makeRegistry([])).code, 'no_eligible_provider');
 });
-

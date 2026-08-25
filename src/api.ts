@@ -65,7 +65,7 @@ export const api = {
   requestApproval: (action: ApprovalAction, target: string) => json<{ id: string; action: string; target: string; expiresAt: string }>('/api/approvals', { method: 'POST', body: JSON.stringify({ action, target }) }),
 
   // /providers supplies the bootstrap health and settings shape.
-  providerHealth: () => json<{ settings: { activeProvider: string; activeModel: string | null; cloudConfigured: boolean }; providers: Provider[] }>('/api/providers'),
+  providerHealth: () => json<{ settings: EffectiveSettings; providers: Provider[] }>('/api/providers'),
   models: (provider?: string) => json<{ provider: string; models: string[] }>(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
 
   // Registry CRUD uses /provider-registry to preserve the /providers response contract.

@@ -6,11 +6,17 @@ import test from 'node:test';
 import { createJarvisApp } from '../lib/application.mjs';
 import { JarvisDatabase } from '../lib/database.mjs';
 
+// chat() resolves its provider through one selection operation; tests stub that.
+const useProvider = (app, provider) => {
+  app.getProvider = () => provider;
+  app.selectProvider = () => ({ provider, source: 'user', reason: `Test provider ${provider.id}` });
+};
+
 test('chat stream events are correlated by conversation and turn id', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
   const app = createJarvisApp({ database: db });
-  app.getProvider = () => ({
+  useProvider(app, {
     id: 'fake',
     label: 'Fake provider',
     async listModels() { return ['fake-model']; },
@@ -69,7 +75,7 @@ test('cancel can target the active conversation and turn id', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
   const app = createJarvisApp({ database: db });
-  app.getProvider = () => ({
+  useProvider(app, {
     id: 'fake',
     label: 'Fake provider',
     async listModels() { return ['fake-model']; },
@@ -103,7 +109,7 @@ test('<think> reasoning is streamed as its own event and excluded from the persi
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
   const app = createJarvisApp({ database: db });
-  app.getProvider = () => ({
+  useProvider(app, {
     id: 'fake',
     label: 'Fake provider',
     async listModels() { return ['fake-model']; },
@@ -147,6 +153,46 @@ test('chat() auto-selects the lowest-priority-number provider when none is speci
     for await (const event of app.chat({ content: 'hi', model: 'primary-model' })) events.push(event);
     assert.equal(events[0].type, 'start');
     assert.equal(events[0].provider, primary.id, 'the lower-priority-number provider should be selected by default');
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('an explicit provider id that does not resolve fails before the turn does any work', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+  const conversation = db.createConversation('routing');
+
+  try {
+    await assert.rejects(async () => {
+      for await (const event of app.chat({ conversationId: conversation.id, content: 'hi', providerId: 'not-a-provider' })) void event;
+    }, (error) => error.code === 'unknown_provider');
+    assert.deepEqual(db.messages(conversation.id), [], 'no message is written for a turn that never selected a provider');
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('the turn start event reports the provider actually used and why routing chose it', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+
+  try {
+    const local = app.addProvider({ name: 'Local', protocol: 'openai-compat', base_url: 'http://127.0.0.1:1/v1', model: 'local-model', tags: ['local'], priority: 1 });
+
+    let start;
+    for await (const event of app.chat({ content: 'hi' })) {
+      if (event.type === 'start') { start = event; break; }
+    }
+    assert.equal(start.provider, local.id, 'the highest-priority eligible local provider is used');
+    assert.equal(start.model, 'local-model');
+    assert.equal(start.routing.source, 'auto-local');
+    assert.match(start.routing.reason, /local/i);
+    assert.equal(app.settings().activeProvider, start.provider, 'settings report the same effective selection');
   } finally {
     db.close();
     fs.rmSync(directory, { recursive: true, force: true });

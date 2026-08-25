@@ -20,13 +20,23 @@ export interface ProviderRecord {
 
 // Effective settings combine provider priority, model choice, and routing policy.
 export interface EffectiveSettings {
+  // The provider an unpinned turn routes to right now, or null when none is eligible.
   activeProvider: string | null;
   activeModel: string | null;
-  cloudConfigured: boolean;
   activeProviderLabel: string | null;
   isCloudProvider: boolean;
+  effectiveSource: string | null;
+  unavailableReason: string | null;
+  models: Record<string, string | null>;
+  cloudConfigured: boolean;
   mode: 'auto' | 'local_only' | 'cloud_only' | string;
   autoEscalateRules: { maxCharCount: number; requireSearch: boolean; requireCodeExecution: boolean };
+}
+
+// A turn reports the provider it actually used and why routing chose it.
+export interface TurnRouting {
+  source: string;
+  reason: string;
 }
 
 export interface ProviderTestResult {

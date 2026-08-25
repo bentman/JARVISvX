@@ -15,7 +15,7 @@ export function SettingsPanel({
   setCloudApproved
 }: {
   providers: Provider[];
-  activeProvider: string;
+  activeProvider: string | null;
   chooseProvider: (id: string) => void;
   availableModels: string[];
   selectedModel: string;
@@ -36,10 +36,11 @@ export function SettingsPanel({
           <PanelCard gap="default">
             <label className="form-label">Active Provider Engine</label>
             <select
-              value={activeProvider}
+              value={activeProvider ?? ''}
               onChange={(e) => chooseProvider(e.target.value)}
               className="form-input w-full"
             >
+              <option value="">Automatic (orchestration decides)</option>
               {providers.map((provider) => {
                 const isCloud = Boolean(provider.tags?.includes('cloud'));
                 return (
@@ -50,7 +51,7 @@ export function SettingsPanel({
               })}
             </select>
             <p className="form-helper">
-              Select Ollama or llama.cpp for local-first execution, or Cloud for remote APIs.
+              Automatic follows the configured orchestration mode. Naming a provider pins every turn to it.
             </p>
           </PanelCard>
 

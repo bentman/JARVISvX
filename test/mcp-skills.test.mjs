@@ -12,6 +12,12 @@ import express from 'express';
 const stdioFixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'mcp-stdio-server.mjs');
 const stdioCommand = `node "${stdioFixture}"`;
 
+// chat() resolves its provider through one selection operation; tests stub that.
+const useProvider = (app, provider) => {
+  app.getProvider = () => provider;
+  app.selectProvider = () => ({ provider, source: 'user', reason: `Test provider ${provider.id}` });
+};
+
 test('database seeds default MCP servers and skills', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mcp-db-'));
   const dbPath = path.join(directory, 'jarvis.sqlite');
@@ -155,7 +161,7 @@ test('/code asks the active provider to generate real code, not a fixed template
   await app.initialize();
 
   let receivedPrompt = null;
-  app.getProvider = () => ({
+  useProvider(app, {
     id: 'fake-coder', label: 'Fake coder', model: 'fake-model',
     async listModels() { return ['fake-model']; },
     async *streamChat({ messages }) {
