@@ -86,7 +86,7 @@ export function McpSkillsView() {
     try {
       const res = await api.pingMcpServer(id);
       setServers((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, status: res.status as any, latencyMs: res.latencyMs } : s))
+        prev.map((s) => (s.id === id ? { ...s, status: res.status as any, latencyMs: res.latencyMs, failureReason: res.failureReason ?? null } : s))
       );
     } catch (err: any) {
       setError(`Failed to ping server: ${err.message}`);
@@ -357,7 +357,7 @@ export function McpSkillsView() {
 
                 <div className="flex items-center gap-2">
                   <StatusBadge status={srv.status === 'connected' ? 'online' : 'offline'} icon={<CheckCircle2 className="w-3 h-3" />}>
-                    {srv.status.toUpperCase()} ({srv.latencyMs}ms)
+                    {srv.status.toUpperCase()}{typeof srv.latencyMs === 'number' ? ` (${srv.latencyMs}ms)` : ''}
                   </StatusBadge>
                   <StatusBadge status="info" className="uppercase">{srv.type}</StatusBadge>
                 </div>

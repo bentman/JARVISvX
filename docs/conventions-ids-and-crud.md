@@ -25,6 +25,21 @@ changed:
   human-authored set. Don't reuse this pattern for resources that aren't a
   small, fixed, human-authored set.
 
+## Status codes
+
+Every resource route answers with the same vocabulary, defined in
+`lib/contracts.mjs` and applied by `lib/api.mjs`:
+
+| Situation | Status | `code` |
+|---|---|---|
+| Unknown id on lookup, update, toggle, delete, approve, reject | 404 | `not_found` |
+| A state transition the record does not allow | 409 | `conflict` |
+| Invalid request data | 400 | `validation` |
+| Missing authorization for the operation | 403 | `approval_required` |
+
+A delete of something that is not there is a 404, not a 200 reporting that
+nothing was removed.
+
 ## REST shapes
 
 Four shapes for "manage a list of things" coexist:

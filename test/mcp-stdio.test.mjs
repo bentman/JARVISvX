@@ -11,7 +11,7 @@ test('listStdioTools performs a real initialize + tools/list handshake against a
   const tools = await listStdioTools(command);
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
   assert.ok(byName.echo, 'echo tool should be discovered');
-  assert.equal(byName.echo.parameters, 'text: string');
+  assert.deepEqual(byName.echo.inputSchema, { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] });
   assert.ok(byName.boom, 'boom tool should be discovered');
 });
 

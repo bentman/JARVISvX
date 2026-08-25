@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
 import { createApiRouter } from '../lib/api.mjs';
@@ -261,4 +263,107 @@ test('upgradeBuiltInSkills replaces an untouched stub /search or /code row but l
 
   db2.close();
   fs.rmSync(directory, { recursive: true, force: true });
+});
+
+// --- HTTP MCP transport ---
+
+async function withHttpMcp(handler, run) {
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => handler(JSON.parse(raw || '{}'), res));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try { await run(`http://127.0.0.1:${server.address().port}/mcp`); } finally { server.close(); }
+}
+
+const rpc = (res, body) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+
+test('an HTTP MCP call carries a request id and surfaces protocol failures as failed results', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mcp-http-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  try {
+    const app = createJarvisApp({ database: db });
+
+    let seenId;
+    await withHttpMcp((body, res) => {
+      seenId = body.id;
+      if (body.params?.name === 'ok') return rpc(res, { jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: 'done' }] } });
+      if (body.params?.name === 'rpc-error') return rpc(res, { jsonrpc: '2.0', id: body.id, error: { code: -32000, message: 'server refused' } });
+      if (body.params?.name === 'not-json') { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<html>'); }
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end('{}');
+    }, async (endpoint) => {
+      const server = db.addMcpServer({ name: 'HTTP MCP', type: 'http', endpoint, tools: [] });
+
+      const ok = await app.executeMcpTool(server.id, 'ok', {});
+      assert.equal(ok.success, true);
+      assert.equal(ok.output, 'done');
+      assert.ok(seenId, 'the call carries a JSON-RPC request id');
+
+      const rpcError = await app.executeMcpTool(server.id, 'rpc-error', {});
+      assert.equal(rpcError.success, false, 'a JSON-RPC error is a failed capability result');
+      assert.match(rpcError.error, /server refused/);
+
+      assert.equal((await app.executeMcpTool(server.id, 'not-json', {})).success, false, 'a non-JSON answer fails');
+      assert.equal((await app.executeMcpTool(server.id, 'http-500', {})).success, false, 'an HTTP failure fails');
+    });
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a probe records the health it measured, and registration alone records none', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mcp-probe-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  try {
+    const app = createJarvisApp({ database: db });
+
+    await withHttpMcp((body, res) => rpc(res, { jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05' } }), async (endpoint) => {
+      const registered = db.addMcpServer({ name: 'HTTP MCP', type: 'http', endpoint, tools: [] });
+      assert.equal(registered.status, 'unknown', 'registering is not an observation');
+      assert.equal(registered.latencyMs, null);
+      assert.equal(registered.lastProbeAt, null);
+
+      const probe = await app.pingMcpServer(registered.id);
+      assert.equal(probe.status, 'connected');
+      const stored = db.mcpServer(registered.id);
+      assert.equal(stored.status, 'connected');
+      assert.equal(typeof stored.latencyMs, 'number');
+      assert.ok(stored.lastProbeAt, 'a completed probe records when it happened');
+      assert.equal(stored.failureReason, null);
+    });
+
+    // An endpoint that is not listening is a measured failure with a reason.
+    const dead = db.addMcpServer({ name: 'Dead', type: 'http', endpoint: 'http://127.0.0.1:1/mcp', tools: [] });
+    const failed = await app.pingMcpServer(dead.id);
+    assert.equal(failed.status, 'error');
+    assert.ok(db.mcpServer(dead.id).failureReason, 'the failure reason is persisted');
+    assert.ok(db.mcpServer(dead.id).lastProbeAt);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('MCP rows without a recorded probe migrate to unknown health', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mcp-migrate-'));
+  const dbPath = path.join(directory, 'jarvis.sqlite');
+
+  const legacy = new DatabaseSync(dbPath);
+  legacy.exec(`CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL DEFAULT ('stdio'), endpoint TEXT NOT NULL, status TEXT NOT NULL DEFAULT ('connected'), latency_ms INTEGER NOT NULL DEFAULT 0, tools_json TEXT NOT NULL DEFAULT ('[]'), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+INSERT INTO mcp_servers VALUES ('legacy','Legacy','http','http://127.0.0.1:1/mcp','connected',7,'[]','n','n');`);
+  legacy.close();
+
+  try {
+    const db = new JarvisDatabase(dbPath);
+    const migrated = db.mcpServer('legacy');
+    assert.equal(migrated.status, 'unknown', 'a status with no probe time was never observed');
+    assert.equal(migrated.latencyMs, null, 'and neither was its latency');
+    assert.equal(migrated.lastProbeAt, null);
+    db.close();
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

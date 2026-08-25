@@ -42,7 +42,7 @@ const createWindow = async () => {
   window.webContents.on('render-process-gone', (_event, details) => console.error(`[renderer-crash] ${details.reason}; exitCode=${details.exitCode}`));
   window.webContents.on('unresponsive', () => console.error('[renderer-crash] renderer became unresponsive'));
   if (!headlessVoiceHost) window.once('ready-to-show', () => window.show());
-  await window.loadURL(`http://127.0.0.1:${discovery.port}/?daemon=${encodeURIComponent(JSON.stringify({ port: discovery.port, token: discovery.token }))}`);
+  await window.loadURL(`http://127.0.0.1:${discovery.port}/`);
 };
 app.whenReady().then(async () => {
   ensureRuntimePaths(paths);

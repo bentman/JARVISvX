@@ -99,11 +99,19 @@ test('jarvis agent run/panel/debate validate their arguments before touching the
 });
 
 test('jarvis mcp add/list/ping/remove round-trips through the real MCP server registry', async () => {
-  await withDaemon(async ({ env }) => {
-    // The seeded built-in filesystem server pings without any network access.
+  await withDaemon(async ({ directory, env }) => {
+    // The built-in filesystem server's health is its owning runtime's: with no
+    // approved root it reports a measured failure rather than a hopeful status.
+    const unusable = await cli(['mcp', 'ping', 'mcp-fs'], { env });
+    assert.equal(unusable.code, 0);
+    assert.match(unusable.stdout, /"status": "error"/);
+    assert.match(unusable.stdout, /approved workspace roots/);
+
+    await cli(['workspace', 'add', directory], { env });
     const ping = await cli(['mcp', 'ping', 'mcp-fs'], { env });
     assert.equal(ping.code, 0);
     assert.match(ping.stdout, /"status": "connected"/);
+    assert.match(ping.stdout, /"failureReason": null/);
 
     const add = await cli(['mcp', 'add', 'Test HTTP Server', 'https://example.invalid/mcp'], { env });
     assert.equal(add.code, 0);

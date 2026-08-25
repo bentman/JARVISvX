@@ -106,8 +106,12 @@ export interface McpServer {
   name: string;
   type: string;
   endpoint: string;
-  status: 'connected' | 'disconnected' | 'error';
-  latencyMs: number;
+  // Mirrors MCP_HEALTH_STATES in lib/contracts.mjs. The observation fields are
+  // null until a probe completes.
+  status: 'unknown' | 'connected' | 'error';
+  latencyMs: number | null;
+  lastProbeAt?: string | null;
+  failureReason?: string | null;
   tools: McpTool[];
   createdAt?: string;
   updatedAt?: string;
@@ -164,6 +168,7 @@ export interface WorkspaceEdit {
   file_path: string;
   content: string;
   reason: string;
+  // Mirrors WORKSPACE_EDIT_STATES in lib/contracts.mjs.
   status: 'pending_review' | 'approved_and_applied' | 'rejected';
   created_at: string;
   reviewed_at?: string | null;

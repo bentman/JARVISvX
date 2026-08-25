@@ -15,12 +15,7 @@ let daemon: { port: number; token: string } | null = null;
 
 const setupDaemon = async () => {
   if (!daemon) {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const paramDaemon = params.get('daemon');
-      if (paramDaemon) daemon = JSON.parse(paramDaemon);
-    } catch {}
-    if (!daemon && window.jarvisDesktop) {
+    if (window.jarvisDesktop) {
       try { daemon = await window.jarvisDesktop.daemon(); } catch {}
     }
     if (!daemon) {
@@ -105,7 +100,7 @@ export const api = {
   // MCP Servers API
   mcpServers: () => json<{ servers: McpServer[] }>('/api/mcp'),
   addMcpServer: (data: { name: string; type?: string; endpoint: string; tools?: McpTool[] }) => json<McpServer>('/api/mcp', { method: 'POST', body: JSON.stringify(data) }),
-  pingMcpServer: (id: string) => json<{ status: string; latencyMs: number }>(`/api/mcp/${id}/ping`, { method: 'POST', body: '{}' }),
+  pingMcpServer: (id: string) => json<{ status: 'unknown' | 'connected' | 'error'; latencyMs: number | null; failureReason: string | null }>(`/api/mcp/${id}/ping`, { method: 'POST', body: '{}' }),
   executeMcpTool: (id: string, toolName: string, params: Record<string, unknown> = {}, approvals: string[] = []) => json<{ success: boolean; tool: string; output: string; durationMs: number }>(`/api/mcp/${id}/tools/${toolName}/execute`, { method: 'POST', body: JSON.stringify({ ...params, approvals }) }),
   deleteMcpServer: (id: string) => json<{ removed: boolean }>(`/api/mcp/${id}`, { method: 'DELETE' }),
 

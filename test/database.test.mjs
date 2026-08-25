@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { JarvisDatabase, PROJECT_ROOT } from '../lib/database.mjs';
+import { MCP_HEALTH_STATES, WORKSPACE_EDIT_STATES } from '../lib/contracts.mjs';
 
 test('database persists settings, conversations, and messages', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-db-'));
@@ -51,4 +53,45 @@ test('provider credentials round-trip against key material that belongs to the d
     if (originalSalt === undefined) delete process.env.JARVIS_KEY_SALT; else process.env.JARVIS_KEY_SALT = originalSalt;
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('a reviewed workspace edit is terminal and an approved one migrates to the applied status', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-edits-'));
+  const dbPath = path.join(directory, 'jarvis.sqlite');
+  const db = new JarvisDatabase(dbPath);
+
+  try {
+    const edit = db.proposeWorkspaceEdit('/tmp/a.txt', 'body', 'because');
+    assert.equal(edit.status, 'pending_review');
+
+    assert.equal(db.updateWorkspaceEditStatus(edit.id, 'rejected').status, 'rejected');
+    assert.throws(() => db.updateWorkspaceEditStatus(edit.id, 'approved_and_applied'), (error) => error.code === 'conflict');
+    assert.throws(() => db.updateWorkspaceEditStatus(edit.id, 'rejected'), (error) => error.code === 'conflict');
+    assert.equal(db.workspaceEdit(edit.id).status, 'rejected', 'a refused transition leaves the record unchanged');
+
+    assert.throws(() => db.updateWorkspaceEditStatus('no-such-edit', 'rejected'), (error) => error.code === 'not_found');
+    db.close();
+
+    // A row stored under the previous status vocabulary is migrated in place.
+    const legacy = new DatabaseSync(dbPath);
+    legacy.prepare('INSERT INTO workspace_edits VALUES(?,?,?,?,?,?,?)').run('old', '/tmp/b.txt', 'body', 'r', 'approved', 'n', 'n');
+    legacy.close();
+
+    const reopened = new JarvisDatabase(dbPath);
+    assert.equal(reopened.workspaceEdit('old').status, 'approved_and_applied');
+    reopened.close();
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('the client status unions mirror the runtime contract', () => {
+  const types = fs.readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
+  const unionAfter = (field, marker) => {
+    const line = types.slice(types.indexOf(marker)).match(new RegExp(`${field}: ([^;]+);`))[1];
+    return [...line.matchAll(/'([^']+)'/g)].map((match) => match[1]).sort();
+  };
+
+  assert.deepEqual(unionAfter('status', 'export interface WorkspaceEdit'), [...WORKSPACE_EDIT_STATES].sort());
+  assert.deepEqual(unionAfter('status', 'export interface McpServer'), [...MCP_HEALTH_STATES].sort());
 });

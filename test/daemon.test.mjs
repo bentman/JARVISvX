@@ -97,3 +97,52 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
     delete process.env.JARVIS_MODEL_DIR;
   }
 });
+
+test('resource routes report the right status, and the session bootstrap is loopback and origin bound', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-routes-'));
+  process.env.JARVIS_DATA_DIR = directory;
+  const { startDaemon } = await import('../lib/daemon.mjs');
+  const daemon = await startDaemon({ port: 0, token: 'route-test-token' });
+  const base = `http://127.0.0.1:${daemon.port}`;
+  const call = (route, options = {}) => fetch(base + route, { ...options, headers: { 'content-type': 'application/json', 'x-jarvis-token': 'route-test-token', ...options.headers } });
+
+  try {
+    // An unknown id is 404 with the common error shape, not 200 saying nothing happened.
+    for (const route of ['/api/memory/nope', '/api/skills/nope', '/api/mcp/nope', '/api/conversations/nope', '/api/provider-registry/nope', '/api/workspace-roots/nope']) {
+      const response = await call(route, { method: 'DELETE' });
+      assert.equal(response.status, 404, `${route} should be 404`);
+      assert.equal((await response.json()).code, 'not_found', `${route} should carry the common error shape`);
+    }
+
+    // An illegal state transition is a conflict.
+    const edit = await (await call('/api/workspace-edits/propose', { method: 'POST', body: JSON.stringify({ path: path.join(directory, 'x.txt'), content: 'c', reason: 'r' }) })).json();
+    assert.equal((await call(`/api/workspace-edits/${edit.id}/reject`, { method: 'POST', body: '{}' })).status, 200);
+    const repeat = await call(`/api/workspace-edits/${edit.id}/reject`, { method: 'POST', body: '{}' });
+    assert.equal(repeat.status, 409);
+    assert.equal((await repeat.json()).code, 'conflict');
+    assert.equal((await call('/api/workspace-edits/nope/approve', { method: 'POST', body: '{}' })).status, 404);
+
+    // Invalid data stays 400.
+    assert.equal((await call('/api/memory', { method: 'POST', body: JSON.stringify({ key: 'k', value: 'v', importance: 'CRITICAL' }) })).status, 400);
+
+    const session = await fetch(`${base}/api/session`);
+    assert.equal(session.status, 200);
+    assert.equal(session.headers.get('cache-control'), 'no-store');
+    const foreign = await fetch(`${base}/api/session`, { headers: { origin: 'http://evil.example' } });
+    assert.equal(foreign.status, 403, 'a foreign origin cannot read the token');
+  } finally {
+    await daemon.close();
+    await fs.rm(directory, { recursive: true, force: true });
+    delete process.env.JARVIS_DATA_DIR;
+  }
+});
+
+test('electron navigation carries no daemon token', async () => {
+  const main = await fs.readFile(new URL('../electron/main.mjs', import.meta.url), 'utf8');
+  const navigation = main.match(/loadURL\(([^\n]+)\)/)[1];
+  assert.ok(!/token/i.test(navigation), `navigation URL must not carry the token: ${navigation}`);
+  assert.ok(main.includes("ipcMain.handle('jarvis:daemon'"), 'the token reaches the renderer over the existing bridge');
+
+  const client = await fs.readFile(new URL('../src/api.ts', import.meta.url), 'utf8');
+  assert.ok(!client.includes("params.get('daemon')"), 'the renderer does not parse token state out of the URL');
+});
