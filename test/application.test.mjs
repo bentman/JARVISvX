@@ -198,3 +198,84 @@ test('the turn start event reports the provider actually used and why routing ch
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('a chat turn carries bounded, ordered memory in the canonical system instruction', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-mem-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+
+  try {
+    for (const row of db.memories()) db.deleteMemory(row.id);
+    db.addMemory({ category: 'code_context', key: 'stack', value: 'Node and SQLite', importance: 'high' });
+    db.addMemory({ category: 'user_preference', key: 'tone', value: 'terse', importance: 'low' });
+
+    let captured;
+    useProvider(app, {
+      id: 'fake', label: 'Fake provider',
+      async listModels() { return ['fake-model']; },
+      async *streamChat(request) { captured = request; yield 'ok'; },
+    });
+
+    for await (const event of app.chat({ content: 'hi', providerId: 'fake', model: 'fake-model' })) void event;
+
+    assert.ok(captured.system.includes('=== MEMORY CONTEXT ==='), 'the memory section is delimited');
+    assert.ok(captured.system.indexOf('stack') < captured.system.indexOf('tone'), 'high importance comes first');
+    assert.ok(!captured.messages.some((message) => message.role === 'system'), 'the instruction stays out of conversation messages');
+    assert.equal(captured.messages.at(-1).content, 'hi');
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('model precedence prefers the request, then the saved setting, then the configured default, then discovery', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-model-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+
+  try {
+    const provider = { id: 'p1', label: 'P1', model: 'configured-model', async listModels() { return ['discovered-model']; } };
+
+    assert.equal(await app.resolveModel({ provider, requested: 'requested-model' }), 'requested-model');
+    assert.equal(await app.resolveModel({ provider, requested: '  ' }), 'configured-model', 'an empty request is ignored');
+
+    db.setSetting('provider.model.p1', 'saved-model');
+    assert.equal(await app.resolveModel({ provider }), 'saved-model');
+    assert.equal(await app.resolveModel({ provider, requested: 'requested-model' }), 'requested-model');
+
+    // Discovery is advisory: it never displaces a configured model or gets saved.
+    assert.equal(await app.resolveModel({ provider: { ...provider, model: 'configured-model' } }), 'saved-model');
+    const discoveryOnly = { id: 'p2', label: 'P2', model: '', async listModels() { return ['discovered-model']; } };
+    assert.equal(await app.resolveModel({ provider: discoveryOnly }), 'discovered-model');
+    assert.equal(db.setting('provider.model.p2', null), null, 'resolving does not save a model');
+
+    await assert.rejects(
+      app.resolveModel({ provider: { id: 'p3', label: 'P3', model: '', async listModels() { return []; } } }),
+      (error) => error.code === 'model_required'
+    );
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a disabled provider id is reported as disabled, not unknown', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-disabled-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  const app = createJarvisApp({ database: db });
+  const conversation = db.createConversation('identity');
+
+  try {
+    const disabled = app.addProvider({ name: 'Off', protocol: 'openai-compat', base_url: 'http://127.0.0.1:1/v1', model: 'm', enabled: false });
+    assert.throws(() => app.getProvider(disabled.id), (error) => error.code === 'provider_disabled');
+    assert.throws(() => app.getProvider('never-existed'), (error) => error.code === 'unknown_provider');
+
+    await assert.rejects(async () => {
+      for await (const event of app.chat({ conversationId: conversation.id, content: 'hi', providerId: disabled.id })) void event;
+    }, (error) => error.code === 'provider_disabled');
+    assert.deepEqual(db.messages(conversation.id), [], 'no turn work happens for an unusable id');
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -81,7 +81,7 @@ export default function App() {
   const isCloudProvider = providerChoice === null
     ? providers.some((provider) => provider.tags?.includes('cloud'))
     : Boolean(activeProviderInfo?.tags?.includes('cloud'));
-  useEffect(() => { if (resolvedProvider && !availableModels.includes(selectedModel)) { const next = availableModels[0] || ''; setSelectedModel(next); if (next) void api.setModel(resolvedProvider, next).catch((err) => setError(err.message)); } }, [resolvedProvider, availableModels.join('|'), selectedModel]);
+  useEffect(() => { if (!selectedModel && availableModels[0]) setSelectedModel(availableModels[0]); }, [resolvedProvider, availableModels.join('|'), selectedModel]);
 
   const selectConversation = async (id: string) => { try { setCurrent(await api.conversation(id)); } catch (err: any) { setError(err.message); } };
   const newConversation = async () => { const item = await api.createConversation(); setCurrent({ ...item, messages: [] }); setConversations((items) => [item, ...items]); };

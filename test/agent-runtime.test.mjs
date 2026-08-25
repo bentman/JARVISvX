@@ -413,6 +413,37 @@ test('RunCoordinator executes solo, panel, and debate multi-agent runs', async (
   }
 });
 
+test('a run naming an unknown agent fails as a unit before any run record exists', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initialize();
+  useDeterministicProcessAgents(app, ['architect', 'reviewer']);
+
+  try {
+    await assert.rejects(
+      app.executeAgentRun({ agentIds: ['architect', 'not-an-agent', 'also-missing'], objective: 'test', mode: 'panel' }),
+      (error) => {
+        assert.equal(error.code, 'unknown_agent');
+        assert.match(error.message, /not-an-agent/);
+        assert.match(error.message, /also-missing/);
+        return true;
+      }
+    );
+    assert.deepEqual(app.agentRuns(), [], 'the whole request fails, leaving no partial record');
+
+    await assert.rejects(
+      app.executeAgentRun({ agentId: 'not-an-agent', objective: 'test', mode: 'solo' }),
+      (error) => error.code === 'unknown_agent'
+    );
+    assert.deepEqual(app.agentRuns(), [], 'an unknown solo id is not quietly replaced by a default');
+
+    // A run with no ids at all still uses the defaults for its mode.
+    const run = await app.executeAgentRun({ objective: 'test', mode: 'solo' });
+    assert.equal(run.agent_id, 'architect');
+  } finally {
+    cleanup();
+  }
+});
+
 test('RunCoordinator fails runs when an adapter produces no output', async () => {
   const { app, cleanup } = createTestApp();
   await app.initialize();

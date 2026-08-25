@@ -82,10 +82,11 @@ test('chat() executes a read-only tool call mid-turn and continues the conversat
     useProvider(app, {
       id: 'fake-tools', label: 'Fake tool-calling provider', supportsToolCalling: true,
       async listModels() { return ['fake-model']; },
-      async *streamChat({ messages }) {
+      async *streamChat({ messages, system }) {
         round += 1;
         if (round === 1) {
-          assert.ok(messages[0].role === 'system' && messages[0].content.includes('diagnostics'), 'capability system prompt should be sent to a tool-calling provider');
+          assert.ok(system.includes('=== AVAILABLE CAPABILITIES ===') && system.includes('diagnostics'), 'the capability section reaches a tool-calling provider');
+          assert.ok(!messages.some((message) => message.role === 'system'), 'and stays out of conversation messages');
           yield { type: 'tool_call', id: 'call-1', name: 'diagnostics', arguments: {} };
           return;
         }
@@ -149,16 +150,17 @@ test('chat() pauses a turn and requests approval before running a write tool, th
   }
 });
 
-test('chat() leaves Anthropic/Gemini-style (non-tool-calling) providers unaffected — no tools, no system prompt injected', async () => {
+test('chat() sends no tools and no capability section to a provider that has not opted into tool-calling', async () => {
   const { db, close } = tempDb();
   try {
     const app = createJarvisApp({ database: db });
     useProvider(app, {
       id: 'fake-plain', label: 'Fake plain provider',
       async listModels() { return ['fake-model']; },
-      async *streamChat({ messages, tools }) {
+      async *streamChat({ messages, system, tools }) {
         assert.equal(tools, undefined, 'a provider that has not opted into tool-calling should never receive a tools payload');
-        assert.equal(messages[0].role, 'user', 'no capability system prompt should be injected for a non-tool-calling provider');
+        assert.ok(!String(system || '').includes('AVAILABLE CAPABILITIES'), 'and never the capability section');
+        assert.equal(messages[0].role, 'user');
         yield 'plain answer';
       },
     });
