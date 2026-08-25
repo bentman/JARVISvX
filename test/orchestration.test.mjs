@@ -33,11 +33,26 @@ test('database persists and updates orchestration settings', () => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
-test('getHardwareProfile detects system CPU cores and computes model recommendation', async () => {
+test('getHardwareProfile reports measured values or nothing at all', async () => {
   const profile = await getHardwareProfile([]);
   assert.ok(profile.cpuCores >= 1, 'CPU cores should be at least 1');
   assert.ok(profile.ramGB >= 1, 'RAM should be at least 1 GB');
-  assert.ok(profile.recommendedLocalModel.length > 0, 'Recommended model should be computed');
+  assert.ok(profile.recommendedLocalModel.length > 0, 'a recommendation is a suggestion, not an observation');
+
+  // Nothing measures throughput, so nothing may claim one.
+  assert.equal(profile.localTokensPerSec, null);
+  // With no configured local provider there is no detected server and no URL.
+  assert.equal(profile.isLocalServerDetected, false);
+  assert.equal(profile.localServerUrl, null);
+  assert.ok(['available', 'unavailable', 'unknown'].includes(profile.accelerationStatus));
+  assert.ok(profile.gpuName === null || typeof profile.gpuName === 'string');
+});
+
+test('a closed local endpoint reports no models and why, with latency on every path', async () => {
+  const closed = await pingLocalEndpoint('http://127.0.0.1:1/v1');
+  assert.deepEqual(closed.models, [], 'an unreachable endpoint has no catalog to offer');
+  assert.ok(closed.reason, 'and says why');
+  assert.equal(typeof closed.latencyMs, 'number');
 });
 
 test('pingLocalEndpoint detects OpenAI-compatible and Ollama model endpoints', async (t) => {

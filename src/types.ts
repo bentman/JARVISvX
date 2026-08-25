@@ -140,13 +140,15 @@ export interface HardwareProfile {
   cpuCores: number;
   ramGB: number;
   freeRamGB: number;
-  gpuName: string;
+  // Null where nothing was measured; the recommendation is a suggestion, not an
+  // observation.
+  gpuName: string | null;
   os: string;
-  webGLTier: string;
+  accelerationStatus: 'available' | 'unavailable' | 'unknown';
   recommendedLocalModel: string;
   isLocalServerDetected: boolean;
-  localServerUrl: string;
-  localTokensPerSec: number;
+  localServerUrl: string | null;
+  localTokensPerSec: number | null;
 }
 
 export interface ModelConfig {
