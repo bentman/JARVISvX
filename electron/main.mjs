@@ -4,24 +4,21 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { startDaemon, daemonDiscovery } from '../lib/daemon.mjs';
 import { DaemonClient } from '../lib/daemon-client.mjs';
-import { dataDirectory } from '../lib/database.mjs';
-import { migrateDataDirectory } from '../lib/data-migration.mjs';
+import { createRuntimePaths, ensureRuntimePaths } from '../lib/runtime-paths.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '..');
-// electronProfile follows the configured data directory so Chromium user data
-// moves alongside the rest of the app state when JARVIS_DATA_DIR is changed.
-const electronProfile = path.join(dataDirectory(), 'electron-profile');
-const electronCache = path.join(projectRoot, 'cache', 'electron');
+// A packaged application keeps runtime state beside its executable; the source
+// tree keeps it beside the project. Neither resolves inside the ASAR archive.
+const paths = createRuntimePaths({ root: app.isPackaged ? path.dirname(app.getPath('exe')) : projectRoot });
 const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
 const iconPath = app.isPackaged ? path.join(process.resourcesPath, iconFile) : path.join(projectRoot, 'src', 'icon', iconFile);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-// Electron otherwise creates its Chromium profile under the user's home/AppData.
 // Durable preferences live in data; recreatable Chromium state lives in cache.
-app.setPath('userData', electronProfile);
-app.setPath('sessionData', path.join(electronCache, 'session'));
-app.setPath('logs', path.join(electronCache, 'logs'));
-app.setPath('crashDumps', path.join(electronCache, 'crash-dumps'));
+app.setPath('userData', paths.profileRoot);
+app.setPath('sessionData', paths.sessionRoot);
+app.setPath('logs', paths.logRoot);
+app.setPath('crashDumps', paths.crashRoot);
 let window; let tray; let daemon; let quitting = false;
 
 let ttsWorker; let ttsId = 0; let ttsQueue = Promise.resolve(); const ttsPending = new Map();
@@ -38,7 +35,7 @@ app.on('second-instance', () => {
   window.focus();
 });
 const createWindow = async () => {
-  const discovery = daemon || await daemonDiscovery();
+  const discovery = daemon || await daemonDiscovery(paths);
   window = new BrowserWindow({ width: 1220, height: 820, minWidth: 900, minHeight: 650, show: false, icon: iconPath, webPreferences: { preload: path.join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, autoplayPolicy: 'no-user-gesture-required' } });
   window.on('close', (event) => { if (!quitting) { event.preventDefault(); window.hide(); } });
   window.webContents.on('console-message', (_event, level, message) => { if (level >= 2) console.error(`[renderer] ${message}`); });
@@ -48,36 +45,28 @@ const createWindow = async () => {
   await window.loadURL(`http://127.0.0.1:${discovery.port}/?daemon=${encodeURIComponent(JSON.stringify({ port: discovery.port, token: discovery.token }))}`);
 };
 app.whenReady().then(async () => {
+  ensureRuntimePaths(paths);
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(permission === 'media' && contents.getURL().startsWith('http://127.0.0.1:')));
 
-  // If a custom JARVIS_DATA_DIR is set, run migration with a native dialog
-  // for import/overwrite conflict resolution before the daemon opens the DB.
-  if (process.env.JARVIS_DATA_DIR && process.env.JARVIS_DATA_DIR.trim()) {
-    const defaultDataRoot = path.resolve(projectRoot, 'data');
-    const targetDataRoot = dataDirectory();
-    if (path.resolve(defaultDataRoot) !== path.resolve(targetDataRoot)) {
-      await migrateDataDirectory(defaultDataRoot, targetDataRoot, {
-        prompt: async ({ source, target }) => {
-          // Headless voice host: never block on a dialog.
-          if (headlessVoiceHost) return 'import';
-          const { response } = await dialog.showMessageBox({
-            type: 'question',
-            title: 'JARVIS Data Directory',
-            message: 'Data found in both locations',
-            detail: `Existing data detected at the configured destination:\n\n${target}\n\nChoose how to proceed:`,
-            buttons: ['Import existing data (safe merge)', 'Start fresh at destination (overwrite)', 'Cancel'],
-            defaultId: 0,
-            cancelId: 2,
-          });
-          if (response === 2) { app.quit(); process.exit(0); }
-          return response === 1 ? 'overwrite' : 'import';
-        },
-      });
-    }
-  }
+  // The desktop host resolves migration conflicts interactively; the daemon owns
+  // the single migration invocation.
+  const onMigrationConflict = async ({ target }) => {
+    if (headlessVoiceHost) return 'import';
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      title: 'JARVIS Data Directory',
+      message: 'Data found in both locations',
+      detail: `Existing data detected at the configured destination:\n\n${target}\n\nChoose how to proceed:`,
+      buttons: ['Import existing data (safe merge)', 'Start fresh at destination (overwrite)', 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+    });
+    if (response === 2) { app.quit(); process.exit(0); }
+    return response === 1 ? 'overwrite' : 'import';
+  };
 
-  try { daemon = await startDaemon(); } catch (error) {
-    const existing = await daemonDiscovery();
+  try { daemon = await startDaemon({ paths, onMigrationConflict }); } catch (error) {
+    const existing = await daemonDiscovery(paths);
     if (!existing) throw error;
     try { await new DaemonClient(existing).health(); daemon = existing; } catch { throw error; }
   }
@@ -94,7 +83,7 @@ app.whenReady().then(async () => {
       const sendProgress = (stage, message, extra = {}) => event.sender.send('jarvis:tts-progress', { id, stage, message, ...extra });
       const timer = setTimeout(() => { ttsPending.delete(id); sendProgress('timeout', 'Local Kokoro synthesis timed out.'); const stuck = ttsWorker; ttsWorker = undefined; void stuck?.terminate(); resolve({ ok: false, stage: 'timeout', error: 'Local Kokoro synthesis timed out.', sampleRate: 24_000, samples: new Float32Array() }); }, 90_000);
       ttsPending.set(id, { sender: event.sender, progress: sendProgress, resolve: (value) => { clearTimeout(timer); resolve(value); }, reject: (error) => { clearTimeout(timer); reject(error); } });
-      worker.postMessage({ id, modelPath: path.join(projectRoot, 'models', 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(projectRoot, 'models', 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: String(payload.text || ''), voice: String(payload.voice || 'bf_isabella') });
+      worker.postMessage({ id, modelPath: path.join(paths.modelRoot, 'tts', 'kokoro-v1', 'kokoro-v1.0.onnx'), voicesPath: path.join(paths.modelRoot, 'tts', 'kokoro-v1', 'voices-v1.0.bin'), text: String(payload.text || ''), voice: String(payload.voice || 'bf_isabella') });
     });
     if (warmup) return run();
     const request = ttsQueue.then(run, run);

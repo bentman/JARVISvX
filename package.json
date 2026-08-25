@@ -19,7 +19,7 @@
     "desktop": "electron .",
     "dev:desktop": "concurrently -k \"npm run dev\" \"npx wait-on http://127.0.0.1:3210 && electron .\"",
     "package:desktop": "npm run build && node scripts/package-desktop.mjs",
-    "test": "node --test --test-concurrency=1 test/agent-runtime.test.mjs test/application.test.mjs test/cli.test.mjs test/daemon.test.mjs test/data-migration.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/mcp-skills.test.mjs test/memory-center.test.mjs test/model-bootstrap.test.mjs test/orchestration.test.mjs test/provider-registry-routes.test.mjs test/providers.test.mjs test/reasoning-stream.test.mjs test/skills-source.test.mjs test/tool-calling.test.mjs test/tools.test.mjs test/voice-hud.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
+    "test": "node --test --test-concurrency=1 test/agent-runtime.test.mjs test/application.test.mjs test/cli.test.mjs test/daemon.test.mjs test/data-migration.test.mjs test/database.test.mjs test/diagnostics.test.mjs test/kokoro-runtime.test.mjs test/mcp-skills.test.mjs test/memory-center.test.mjs test/model-bootstrap.test.mjs test/orchestration.test.mjs test/provider-registry-routes.test.mjs test/providers.test.mjs test/reasoning-stream.test.mjs test/runtime-paths.test.mjs test/skills-source.test.mjs test/tool-calling.test.mjs test/tools.test.mjs test/voice-hud.test.mjs test/wake-fixtures.test.mjs test/whisper-fixture.test.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

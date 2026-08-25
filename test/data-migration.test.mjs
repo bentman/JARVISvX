@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { resolveDataDirectory, PROJECT_ROOT } from '../lib/database.mjs';
+import { JarvisDatabase, assertCredentialKeyAvailable, resolveDataDirectory, PROJECT_ROOT } from '../lib/database.mjs';
 import { migrateDataDirectory, dataDirectoryInfo } from '../lib/data-migration.mjs';
 
 // ---------------------------------------------------------------------------
@@ -149,4 +149,50 @@ test('non-interactive migration defaults to import when no prompt provided', asy
   assert.ok(fs.existsSync(path.join(dst, 'new.db')));
   assert.ok(fs.existsSync(path.join(dst, 'old.db')));
   fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('an unrecognized conflict decision raises a typed conflict instead of moving data', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-migrate-conflict-'));
+  const source = path.join(base, 'source');
+  const target = path.join(base, 'target');
+  fs.mkdirSync(source, { recursive: true });
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(source, 'source.txt'), 'source');
+  fs.writeFileSync(path.join(target, 'target.txt'), 'target');
+
+  await assert.rejects(
+    migrateDataDirectory(source, target, { prompt: async () => 'cancel' }),
+    (error) => error.code === 'migration_conflict'
+  );
+  assert.ok(fs.existsSync(path.join(source, 'source.txt')), 'the source survives an unresolved conflict');
+  assert.ok(fs.existsSync(path.join(target, 'target.txt')), 'the destination survives an unresolved conflict');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('stored credentials require their effective key material to be present', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-key-check-'));
+  const originalSalt = process.env.JARVIS_KEY_SALT;
+  delete process.env.JARVIS_KEY_SALT;
+  try {
+    const dataRoot = path.join(directory, 'data');
+    const db = new JarvisDatabase({ dataRoot });
+    // A database with no stored credential needs no key material.
+    db.close();
+    assertCredentialKeyAvailable(dataRoot);
+
+    const withCredential = new JarvisDatabase({ dataRoot });
+    withCredential.addProvider({ name: 'Cloud', protocol: 'openai-compat', base_url: 'https://example.invalid/v1', api_key: 'secret' });
+    withCredential.close();
+    assertCredentialKeyAvailable(dataRoot);
+
+    // The database arriving without its file-backed key is reported, not opened blind.
+    fs.rmSync(path.join(dataRoot, 'provider.key'));
+    assert.throws(() => assertCredentialKeyAvailable(dataRoot), (error) => error.code === 'credential_key_missing');
+
+    process.env.JARVIS_KEY_SALT = 'portable-salt';
+    assertCredentialKeyAvailable(dataRoot);
+  } finally {
+    if (originalSalt === undefined) delete process.env.JARVIS_KEY_SALT; else process.env.JARVIS_KEY_SALT = originalSalt;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

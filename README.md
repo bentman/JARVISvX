@@ -23,7 +23,9 @@ provider URLs, data directory, cloud credentials) inline.
 
 ## Storage Layout
 
-All artifacts are kept inside the repository directory.
+All artifacts are kept inside the application directory. A packaged desktop
+build resolves the same layout beside its executable; `JARVIS_DATA_DIR`,
+`JARVIS_MODEL_DIR`, and `JARVIS_TEMP_DIR` relocate their roots.
 
 | Path | Contents |
 |---|---|
@@ -34,9 +36,12 @@ All artifacts are kept inside the repository directory.
 | `data/daemon.lock` | Single-instance ownership lock while the daemon runs |
 | `data/daemon.json` | Loopback port, process identity, and client token discovery while the daemon runs |
 | `data/provider.key` | Auto-generated provider-credential salt when `JARVIS_KEY_SALT` is empty; preserve it with the database |
+| `data/agents.json` | Agent-profile overrides, written when a profile is saved |
 | `data/electron-profile` | Durable Electron user profile |
-| `cache/` | Re-creatable runtime state (`cache/temp` = download staging) |
-| `.jarvis/agents.json` | Source-mode agent-profile overrides, created when an agent profile is saved |
+| `cache/temp` | Download staging |
+| `cache/electron/session` | Re-creatable Chromium session state |
+| `cache/electron/logs` | Electron and daemon logs |
+| `cache/electron/crash-dumps` | Electron crash reports |
 
 No data is written to `%APPDATA%` or a home-directory folder — this holds regardless of
 the working directory `jarvis` is launched from, since defaults are anchored to the

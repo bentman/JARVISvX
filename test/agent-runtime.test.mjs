@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 import { createJarvisApp } from '../lib/application.mjs';
 import { AgentRegistry } from '../lib/agents/registry.mjs';
+import { PROJECT_ROOT } from '../lib/runtime-paths.mjs';
 import { PolicyGate } from '../lib/agents/policy.mjs';
 import { createTurnAuthorization } from '../lib/authorization.mjs';
 import { ProcessAdapter } from '../lib/agents/adapters/process.mjs';
@@ -63,46 +64,58 @@ function useDeterministicProcessAgents(app, ids = ['architect', 'reviewer', 'adv
 }
 
 test('AgentRegistry loads built-in agent role profiles and CLI bindings', async () => {
-  const registry = new AgentRegistry();
-  await registry.load();
-  const profiles = registry.list();
+  await withScratchConfig(async ({ configPath }) => {
+    const registry = new AgentRegistry({ configPath });
+    await registry.load();
+    const profiles = registry.list();
 
-  assert.ok(profiles.length >= 7);
-  const architect = registry.get('architect');
-  assert.equal(architect.name, 'Architect');
-  assert.equal(architect.cli, 'claude');
-  assert.equal(architect.voice, 'bm_george');
-  assert.deepEqual(architect.capabilities, ['workspace.read', 'git.read']);
+    assert.ok(profiles.length >= 7);
+    const architect = registry.get('architect');
+    assert.equal(architect.name, 'Architect');
+    assert.equal(architect.cli, 'claude');
+    assert.equal(architect.voice, 'bm_george');
+    assert.deepEqual(architect.capabilities, ['workspace.read', 'git.read']);
 
-  const researcher = registry.get('researcher');
-  assert.equal(researcher.cli, 'agy');
-
-  const reviewer = registry.get('reviewer');
-  assert.equal(reviewer.cli, 'codex');
-
-  const security = registry.get('security');
-  assert.equal(security.cli, 'copilot');
-
-  const debuggerAgent = registry.get('debugger');
-  assert.equal(debuggerAgent.cli, 'cline');
+    assert.equal(registry.get('researcher').cli, 'agy');
+    assert.equal(registry.get('reviewer').cli, 'codex');
+    assert.equal(registry.get('security').cli, 'copilot');
+    assert.equal(registry.get('debugger').cli, 'cline');
+  });
 });
 
-// Registry mutation tests isolate <cwd>/.jarvis and restore cwd after every outcome.
-async function withScratchCwd(fn) {
-  const originalCwd = process.cwd();
+// Registry mutation tests write to their own override path.
+async function withScratchConfig(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-agent-registry-'));
-  process.chdir(dir);
+  const configPath = path.join(dir, 'agents.json');
   try {
-    await fn(dir);
+    await fn({ dir, configPath });
   } finally {
-    process.chdir(originalCwd);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
+test('overrides seeded beside the source tree are adopted once into the runtime location', async () => {
+  await withScratchConfig(async ({ configPath }) => {
+    const seedPath = path.join(PROJECT_ROOT, '.jarvis', 'agents.json');
+    const seedBefore = fs.readFileSync(seedPath, 'utf8');
+
+    const registry = new AgentRegistry({ configPath });
+    await registry.load();
+    assert.ok(fs.existsSync(configPath), 'the seeded overrides land at the runtime location');
+    assert.equal(fs.readFileSync(seedPath, 'utf8'), seedBefore, 'the seed is read, never rewritten');
+
+    // A later edit is the only thing that changes the adopted file.
+    await registry.updateAgent('architect', { voice: 'af_sarah' });
+    const adopted = fs.readFileSync(configPath, 'utf8');
+    await registry.load();
+    assert.equal(fs.readFileSync(configPath, 'utf8'), adopted, 'adoption does not run again over saved profiles');
+    assert.equal(registry.get('architect').voice, 'af_sarah');
+  });
+});
+
 test('AgentRegistry.createAgent adds a real, persisted custom agent with a unique slugified id', async () => {
-  await withScratchCwd(async (dir) => {
-    const registry = new AgentRegistry();
+  await withScratchConfig(async ({ configPath }) => {
+    const registry = new AgentRegistry({ configPath });
     await registry.load();
 
     const created = await registry.createAgent({
@@ -119,11 +132,11 @@ test('AgentRegistry.createAgent adds a real, persisted custom agent with a uniqu
     assert.equal(created.isBuiltIn, false);
     assert.deepEqual(registry.get('qa-runner').capabilities, ['workspace.read', 'shell']);
 
-    const reloaded = new AgentRegistry();
+    const reloaded = new AgentRegistry({ configPath });
     await reloaded.load();
     assert.equal(reloaded.get('qa-runner').name, 'QA Runner');
 
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, '.jarvis', 'agents.json'), 'utf8'));
+    const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     assert.equal(onDisk.agents['qa-runner'].name, 'QA Runner');
 
     // A second agent with a colliding slug gets a disambiguated id.
@@ -133,8 +146,8 @@ test('AgentRegistry.createAgent adds a real, persisted custom agent with a uniqu
 });
 
 test('AgentRegistry.createAgent rejects invalid fields instead of silently accepting them', async () => {
-  await withScratchCwd(async () => {
-    const registry = new AgentRegistry();
+  await withScratchConfig(async ({ configPath }) => {
+    const registry = new AgentRegistry({ configPath });
     await registry.load();
 
     await assert.rejects(registry.createAgent({ name: '' }), /name is required/);
@@ -148,8 +161,8 @@ test('AgentRegistry.createAgent rejects invalid fields instead of silently accep
 });
 
 test('AgentRegistry.updateAgent restricts built-in agents to wiring fields only, and persists changes for both built-in and custom agents', async () => {
-  await withScratchCwd(async (dir) => {
-    const registry = new AgentRegistry();
+  await withScratchConfig(async ({ configPath }) => {
+    const registry = new AgentRegistry({ configPath });
     await registry.load();
 
     // Built-in: adapter/cli/voice/capabilities may change...
@@ -164,7 +177,7 @@ test('AgentRegistry.updateAgent restricts built-in agents to wiring fields only,
     await assert.rejects(registry.updateAgent('architect', { instructions: 'new instructions' }), /built-in role/);
 
     // The override survives a fresh load from disk.
-    const reloaded = new AgentRegistry();
+    const reloaded = new AgentRegistry({ configPath });
     await reloaded.load();
     assert.equal(reloaded.get('architect').cli, 'codex');
 
@@ -176,13 +189,12 @@ test('AgentRegistry.updateAgent restricts built-in agents to wiring fields only,
 
     // Unknown agent id fails with a 404-flavored error.
     await assert.rejects(registry.updateAgent('does-not-exist', { voice: 'af_bella' }), (err) => err.code === 'not_found');
-    void dir;
   });
 });
 
 test('AgentRegistry.deleteAgent removes custom agents but refuses to remove built-ins', async () => {
-  await withScratchCwd(async () => {
-    const registry = new AgentRegistry();
+  await withScratchConfig(async ({ configPath }) => {
+    const registry = new AgentRegistry({ configPath });
     await registry.load();
 
     const custom = await registry.createAgent({ name: 'Temp Agent', cli: 'claude', instructions: 'temporary' });
