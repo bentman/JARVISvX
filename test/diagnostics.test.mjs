@@ -14,11 +14,29 @@ test('uses a vendor driver VRAM report instead of a legacy Windows adapter value
   assert.equal(inventory[1].memorySource, 'unavailable');
 });
 
-test('classifyHost reflects the same memory tiers getHardwareProfile uses for model recommendations', () => {
-  assert.equal(classifyHost({ memoryGB: 64, accelerationAvailable: true }), 'high-memory+gpu-accel');
-  assert.equal(classifyHost({ memoryGB: 32, accelerationAvailable: true }), 'high-memory+gpu-accel');
-  assert.equal(classifyHost({ memoryGB: 16, accelerationAvailable: false }), 'standard-memory+cpu-only');
-  assert.equal(classifyHost({ memoryGB: 8, accelerationAvailable: false }), 'constrained-memory+cpu-only');
+test('classifyHost names the operating system, architecture, and best available accelerator', () => {
+  const gpu = { status: 'available', npu: { status: 'unavailable' } };
+  const npu = { status: 'available', npu: { status: 'available' } };
+  const none = { status: 'unavailable', npu: { status: 'unavailable' } };
+
+  assert.equal(classifyHost({ platform: 'win32', arch: 'x64', acceleration: none }), 'windows-amd64-cpu');
+  assert.equal(classifyHost({ platform: 'win32', arch: 'x64', acceleration: gpu }), 'windows-amd64-gpu');
+  assert.equal(classifyHost({ platform: 'linux', arch: 'arm64', acceleration: none }), 'linux-arm64-cpu');
+  assert.equal(classifyHost({ platform: 'linux', arch: 'arm64', acceleration: gpu }), 'linux-arm64-gpu');
+  assert.equal(classifyHost({ platform: 'linux', arch: 'arm64', acceleration: npu }), 'linux-arm64-npu');
+});
+
+// An amd64 host reports an NPU when one is present: probeWindowsNpu() matches the
+// AI Boost and Ryzen AI devices that Intel Core Ultra and Ryzen AI parts expose.
+test('classifyHost reports an NPU on amd64 as well as arm64', () => {
+  const npu = { status: 'available', npu: { status: 'available' } };
+
+  assert.equal(classifyHost({ platform: 'win32', arch: 'x64', acceleration: npu }), 'windows-amd64-npu');
+  assert.equal(classifyHost({ platform: 'linux', arch: 'x64', acceleration: npu }), 'linux-amd64-npu');
+});
+
+test('classifyHost reports an unmapped platform or architecture as observed', () => {
+  assert.equal(classifyHost({ platform: 'freebsd', arch: 'ppc64', acceleration: {} }), 'freebsd-ppc64-cpu');
 });
 
 test('shortCpuName strips vendor trademark noise and clock-speed suffixes', () => {

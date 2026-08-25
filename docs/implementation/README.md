@@ -5,9 +5,10 @@ Lifecycle: Planned
 ## Purpose
 
 This program defines the required work for making the daemon, desktop host,
-CLI, provider layer, capability system, agent runtime, voice runtime, and
-packaged application follow one verifiable contract. It is the implementation
-entry point for the seven phase specifications in this directory.
+CLI, provider layer, capability system, agent runtime, and voice runtime follow
+one verifiable contract when the application is run from a repository clone. It
+is the implementation entry point for the seven phase specifications in this
+directory.
 
 `AGENTS.md` governs repository-wide engineering practice. The documents in
 this directory define the behavior, ownership, dependencies, and acceptance
@@ -44,7 +45,7 @@ Every phase preserves these invariants:
 | Phase | Specification | Depends on | Primary outcome |
 |---|---|---|---|
 | 1 | [Authorization and execution boundaries](phase-1-authorization-boundaries.md) | None | One enforceable authorization path for providers, skills, tools, agents, and workspace writes |
-| 2 | [Packaged runtime storage](phase-2-packaged-runtime-storage.md) | Phase 1 contract definitions | Writable, persistent runtime state in source and packaged execution |
+| 2 | [Runtime storage](phase-2-packaged-runtime-storage.md) | Phase 1 contract definitions | Writable, persistent runtime state in a relocatable data root, outside the install tree |
 | 3 | [Provider selection and routing](phase-3-provider-routing.md) | Phase 1 | One provider-selection contract across desktop, TUI, CLI, and voice |
 | 4 | [Memory and resource identity](phase-4-memory-and-identity.md) | Phase 3 | Memory reaches model turns; identifiers and default models resolve deterministically |
 | 5 | [Workspace, MCP, provider, and API contracts](phase-5-integration-contracts.md) | Phases 1, 3, and 4 | Consistent cross-layer schemas, transport behavior, status reporting, and provider protocols |
@@ -70,7 +71,8 @@ An agentic coding assistant implementing a phase performs this sequence:
    requirements. The desktop, CLI, and voice entry points reuse daemon-owned
    policy and state rather than duplicating it.
 5. Run the narrow checks named by the phase. Reserve the full test suite,
-   production build, and packaged smoke test for Phase 7 or a release attempt.
+   production build, and platform start/restart check for Phase 7 or a release
+   attempt.
    Until Phase 7 extends lint to repository JavaScript, `npm run lint` is
    evidence for renderer TypeScript only; backend evidence comes from the
    Node tests the phase names.
@@ -94,7 +96,7 @@ contract established earlier.
 | C02 | Gate provider calls made by slash skills | 1 |
 | C03 | Constrain custom skill and ACP agent authority | 1 |
 | C04 | Resolve workspace paths through approved real paths | 1 |
-| C05 | Package Windows and Linux with writable runtime data and file-backed credential key material outside the ASAR archive | 2 |
+| C05 | Keep writable runtime data and file-backed credential key material outside the install tree | 2 |
 | C06 | Persist mutable agent configuration outside tracked source | 2 |
 | C07 | Apply orchestration and agent-profile provider pins through one routing contract | 3 |
 | C08 | Constrain memory ordering inputs and inject active memories into model requests | 4 |

@@ -69,12 +69,11 @@ JavaScript check shall cover undefined identifiers in `lib/`, `bin/`,
 `electron/`, `scripts/`, and `test/` with an ESM-aware configuration.
 
 The final platform check consists of lint, the discovered test suite, the
-production build, and one packaged startup/restart smoke test on Windows and
-Linux. Platform checks run natively so Electron and native dependencies match
-the target operating system. This is the only packaged run in the program, so
-it also confirms the Phase 2 storage contract on the real artifact: runtime
-state resolves outside the ASAR archive, voice assets load from `modelRoot`,
-and an agent-profile edit lands in `agentConfigPath`.
+production build, and one desktop start and restart from a clone on Windows and
+on Linux. Platform checks run natively so Electron and native dependencies match
+the host operating system. Each run also confirms the Phase 2 storage contract:
+runtime state resolves outside the install tree, voice assets load from
+`modelRoot`, and an agent-profile edit lands in `agentConfigPath`.
 
 ### P7-R05: Documentation accuracy
 
@@ -83,8 +82,8 @@ API names, status values, and commands shall describe the implemented system.
 `AGENTS.md` shall use `docs/adr/adr-NNNN-<slug>.md` as the canonical ADR path.
 
 Storage documentation shall identify SQLite, daemon lock and discovery files,
-effective provider key material, and mutable agent configuration for source
-and packaged execution. Seed data shall name the actual React and authored-CSS
+effective provider key material, and mutable agent configuration, and shall say
+which of them a relocated data root moves. Seed data shall name the actual React and authored-CSS
 frontend stack.
 
 ## Implementation targets
@@ -121,13 +120,13 @@ end of the phase, run:
 ```text
 npm run lint
 npm test
-npm run package:desktop
+npm run build
 ```
 
-On Windows and Linux, launch the native package with isolated application data,
-restart it once, and confirm chat, persisted state, clean shutdown, runtime
-state written outside the ASAR archive, voice assets served from `modelRoot`,
-and an agent-profile edit saved to `agentConfigPath`.
+On Windows and Linux, start the desktop host from a clone against a relocated
+data root, restart it once, and confirm chat, persisted state, clean shutdown,
+runtime state written outside the install tree, voice assets served from
+`modelRoot`, and an agent-profile edit saved to `agentConfigPath`.
 
 ## Exit conditions
 
@@ -138,7 +137,6 @@ Phase 7 is complete when:
 - probes are timeout-bounded, cancellable, and deduplicated;
 - added indexes serve demonstrated application queries;
 - every matching Node test is discovered automatically;
-- the packaged smoke check confirms the Phase 2 storage contract on the real
-  artifact; and
-- lint, tests, native package builds, and one startup/restart smoke check pass
-  on Windows and Linux.
+- the start/restart check confirms the Phase 2 storage contract; and
+- lint, tests, the production build, and one start/restart check pass on
+  Windows and Linux.
