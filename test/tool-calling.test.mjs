@@ -6,9 +6,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
-import { buildCapabilityRegistry, describeCapabilities } from '../lib/capabilities.mjs';
+import { buildCapabilityRegistry, describeCapabilities, findCapability } from '../lib/capabilities.mjs';
 import { OpenAICompatProvider } from '../lib/providers/openai-compat.mjs';
 import { OllamaProvider } from '../lib/providers/ollama.mjs';
+
+// Grants come from the daemon ledger, the same path a client request takes.
+const approve = (app, ...requests) => app.authorizationFor(requests.map((request) => app.issueApproval(request).id));
 
 function tempDb() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-tools-'));
@@ -131,7 +134,7 @@ test('chat() pauses a turn and requests approval before running a write tool, th
     assert.ok(!fs.existsSync(path.join(rootDir, 'note.txt')), 'the file should not be written without approval');
 
     const allowed = [];
-    for await (const event of app.chat({ content: 'save a note', conversationId: blocked[0].conversationId, providerId: 'fake-writer', model: 'fake-model', allowToolWrites: true })) allowed.push(event);
+    for await (const event of app.chat({ content: 'save a note', conversationId: blocked[0].conversationId, providerId: 'fake-writer', model: 'fake-model', authorization: approve(app, { action: 'capability.mutate', target: 'write_workspace_file' }) })) allowed.push(event);
     assert.ok(allowed.some((e) => e.type === 'tool-call' && e.name === 'write_workspace_file'));
     assert.ok(allowed.some((e) => e.type === 'tool-result' && e.name === 'write_workspace_file'));
     assert.ok(fs.existsSync(path.join(rootDir, 'note.txt')), 'the file should be written once approved');
@@ -223,7 +226,7 @@ test('OllamaProvider.streamChat parses a native tool_calls response', async () =
 
 // --- Skills as model-callable capabilities ---
 
-test('buildCapabilityRegistry includes enabled skills, slugified and read-only, but skips disabled ones', () => {
+test('buildCapabilityRegistry exposes application-owned skills and withholds user-authored and disabled ones', () => {
   const { db, close } = tempDb();
   try {
     const app = createJarvisApp({ database: db });
@@ -233,9 +236,12 @@ test('buildCapabilityRegistry includes enabled skills, slugified and read-only, 
     const tools = buildCapabilityRegistry(app);
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
 
-    assert.ok(byName.echo, 'the /echo skill should be registered under the slugified name "echo"');
-    assert.equal(byName.echo.permission, 'read-only');
+    assert.equal(byName.calc.permission, 'read-only', 'an application-owned skill is model-callable');
+    assert.ok(!byName.echo, 'a user-authored skill is withheld from autonomous model invocation');
     assert.ok(!byName['disabled-thing'] && !byName.disabled_thing, 'a disabled skill should not be registered');
+
+    const record = findCapability(app, 'echo');
+    assert.equal(record.permission, 'approval-required', 'the same skill stays reachable by name, behind approval');
   } finally {
     close();
   }
@@ -259,25 +265,24 @@ test('chat() invokes a skill through the tool-calling loop the same way /slash w
   const { db, close } = tempDb();
   try {
     const app = createJarvisApp({ database: db });
-    db.addSkill({ name: 'Echo Skill', slashCommand: '/echo', description: 'Echoes back the input.', code: 'async function execute({ input }) { return { output: `skill says ${input}` }; }', enabled: true });
 
     app.getProvider = () => ({
       id: 'fake-skill-caller', label: 'Fake provider', supportsToolCalling: true,
       async listModels() { return ['fake-model']; },
       async *streamChat({ messages }) {
         const toolResult = messages.find((m) => m.role === 'tool');
-        if (!toolResult) { yield { type: 'tool_call', id: 'call-1', name: 'echo', arguments: { input: 'hello' } }; return; }
-        assert.ok(toolResult.content.includes('skill says hello'));
+        if (!toolResult) { yield { type: 'tool_call', id: 'call-1', name: 'calc', arguments: { input: '6 * 7' } }; return; }
+        assert.ok(toolResult.content.includes('42'));
         yield 'done';
       },
     });
 
     const events = [];
-    for await (const event of app.chat({ content: 'please echo hello', providerId: 'fake-skill-caller', model: 'fake-model' })) events.push(event);
+    for await (const event of app.chat({ content: 'what is 6 * 7', providerId: 'fake-skill-caller', model: 'fake-model' })) events.push(event);
     const toolCallEvent = events.find((e) => e.type === 'tool-call');
     const toolResultEvent = events.find((e) => e.type === 'tool-result');
-    assert.equal(toolCallEvent.name, 'echo');
-    assert.ok(toolResultEvent.output.includes('skill says hello'));
+    assert.equal(toolCallEvent.name, 'calc');
+    assert.ok(toolResultEvent.output.includes('42'));
   } finally {
     close();
   }
@@ -315,9 +320,10 @@ test('buildCapabilityRegistry lists agent delegation as read-only listing plus a
 });
 
 test('chat() pauses agent delegation for approval, then runs the delegated agent and feeds its result back', async () => {
-  const { db, close } = tempDb();
+  const { directory, db, close } = tempDb();
   try {
     const app = createJarvisApp({ database: db });
+    await app.addRoot(fs.realpathSync(fs.mkdtempSync(path.join(directory, 'root-'))));
     useProcessAgent(app, 'researcher', (prompt) => `researcher findings: ${prompt}`);
 
     app.getProvider = () => ({
@@ -337,7 +343,7 @@ test('chat() pauses agent delegation for approval, then runs the delegated agent
     assert.equal(blocked[1].name, 'agents_ask');
 
     const allowed = [];
-    for await (const event of app.chat({ content: 'ask the researcher to survey the auth module', conversationId: blocked[0].conversationId, providerId: 'fake-agent-caller', model: 'fake-model', allowToolWrites: true })) allowed.push(event);
+    for await (const event of app.chat({ content: 'ask the researcher to survey the auth module', conversationId: blocked[0].conversationId, providerId: 'fake-agent-caller', model: 'fake-model', authorization: approve(app, { action: 'capability.mutate', target: 'agents_ask' }) })) allowed.push(event);
     const toolCallEvent = allowed.find((e) => e.type === 'tool-call');
     const toolResultEvent = allowed.find((e) => e.type === 'tool-result');
     assert.equal(toolCallEvent.name, 'agents_ask');
@@ -348,10 +354,11 @@ test('chat() pauses agent delegation for approval, then runs the delegated agent
   }
 });
 
-test('agents_ask approval gate applies uniformly, and satisfies PolicyGate for an agent whose profile needs workspace.write/shell', async () => {
-  const { db, close } = tempDb();
+test('delegating to a privileged agent needs both the capability approval and that agent grant', async () => {
+  const { directory, db, close } = tempDb();
   try {
     const app = createJarvisApp({ database: db });
+    await app.addRoot(fs.realpathSync(fs.mkdtempSync(path.join(directory, 'root-'))));
     useProcessAgent(app, 'builder', () => 'builder made the change');
 
     app.getProvider = () => ({
@@ -365,10 +372,13 @@ test('agents_ask approval gate applies uniformly, and satisfies PolicyGate for a
       },
     });
 
+    const capabilityOnly = [];
+    for await (const event of app.chat({ content: 'have the builder implement the fix', providerId: 'fake-builder-caller', model: 'fake-model', authorization: approve(app, { action: 'capability.mutate', target: 'agents_ask' }) })) capabilityOnly.push(event);
+    assert.match(capabilityOnly.find((e) => e.type === 'tool-result').output, /privileged capabilities/, 'the capability approval alone does not grant the agent privilege');
+
     const events = [];
-    for await (const event of app.chat({ content: 'have the builder implement the fix', providerId: 'fake-builder-caller', model: 'fake-model', allowToolWrites: true })) events.push(event);
+    for await (const event of app.chat({ content: 'have the builder implement the fix', providerId: 'fake-builder-caller', model: 'fake-model', authorization: approve(app, { action: 'capability.mutate', target: 'agents_ask' }, { action: 'agent.privileged', target: 'builder' }) })) events.push(event);
     const toolResultEvent = events.find((e) => e.type === 'tool-result');
-    assert.ok(toolResultEvent, 'the delegated run should complete once the outer approval gate is satisfied, without a separate PolicyGate rejection');
     assert.ok(toolResultEvent.output.includes('builder made the change'));
   } finally {
     close();

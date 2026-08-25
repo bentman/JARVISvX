@@ -1,6 +1,7 @@
 import { Activity, Bot, Brain, ChevronRight, CircleStop, Cloud, Cpu, Database, FolderPlus, MessageSquarePlus, Mic, Send, Settings2, Trash2, Users, X, Zap } from 'lucide-react';
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
+import type { ApprovalAction } from './api';
 import { VoiceHost } from './voice/VoiceHost';
 import { McpSkillsView } from './components/McpSkillsView';
 import { ModelOrchestrationView } from './components/ModelOrchestrationView';
@@ -78,6 +79,17 @@ export default function App() {
     setError('');
     setInput('');
     setStreaming(true);
+    // The approval controls represent the next accepted turn only: the grants are
+    // requested and the controls cleared before this turn is awaited.
+    const approvalRequests: Array<[ApprovalAction, string]> = [];
+    if (isCloudProvider && cloudApproved) approvalRequests.push(['provider.cloud', activeProvider]);
+    if (allowToolWrites) approvalRequests.push(['capability.mutate', 'any']);
+    setCloudApproved(false);
+    setAllowToolWrites(false);
+    let approvals: string[];
+    try {
+      approvals = await Promise.all(approvalRequests.map(([action, target]) => api.requestApproval(action, target).then((grant) => grant.id)));
+    } catch (err: any) { setError(err.message); setStreaming(false); return; }
     let conversationId = targetConversationId === undefined ? current?.id : targetConversationId || undefined;
     let turnId: string | undefined;
     const userMessageId = `pending-user-${crypto.randomUUID()}`;
@@ -87,7 +99,7 @@ export default function App() {
     const shouldAppendToCurrent = Boolean(conversationId);
     setCurrent((value) => shouldAppendToCurrent && value ? { ...value, messages: [...(value.messages || []), optimistic, optimisticAssistant] } : { id: 'pending', title: content.slice(0, 60), created_at: new Date().toISOString(), updated_at: new Date().toISOString(), messages: [optimistic, optimisticAssistant] });
     try {
-      await api.streamChat({ conversationId, content, providerId: activeProvider, model: selectedModel, allowCloud: cloudApproved, allowToolWrites, origin }, (message) => {
+      await api.streamChat({ conversationId, content, providerId: activeProvider, model: selectedModel, approvals, origin }, (message) => {
         if (message.type === 'start') {
           conversationId = message.conversationId;
           turnId = message.turnId;

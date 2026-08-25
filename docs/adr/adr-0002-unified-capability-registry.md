@@ -1,6 +1,6 @@
 # ADR 0002: Centralize model-callable capabilities
 
-Status: Accepted
+Status: Accepted; partially superseded by [ADR 0003](adr-0003-authorization-context-and-execution-boundary.md)
 Date: 2026-08-19
 
 ## Context
@@ -57,14 +57,18 @@ persistence stores the user message and final assistant output.
 
 ## Consequences
 
+- ADR 0003 supersedes two decisions here: enabled skills are no longer autonomous
+  by virtue of being enabled — provenance decides — and an MCP tool is no longer
+  inferred read-only from its name or the absence of a mutating flag.
 - Model-initiated MCP, application, skill, and agent operations share one bounded
   dispatch loop and one collision policy.
 - Registry composition is a snapshot for the turn; configuration changes affect
   the next turn.
 - MCP registration order determines ownership of collisions before core tools,
   skills, and agent capabilities are considered.
-- `allowToolWrites` authorizes every model-callable capability classified as
-  approval-required, including `agents_ask`.
+- A mutating-capability grant authorizes every model-callable capability
+  classified as approval-required. Under ADR 0003 it does not extend to the
+  privileged capabilities of an agent reached through `agents_ask`.
 - Slash-command skill execution and explicit agent-run entry points retain their
   own routing and authorization controls; this ADR governs model-initiated
   capability calls through `application.chat()`.

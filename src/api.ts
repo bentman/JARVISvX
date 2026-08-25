@@ -57,7 +57,13 @@ const json = async <T>(url: string, options?: RequestInit): Promise<T> => {
   return response.status === 204 ? undefined as T : parseJsonResponse<T>(response);
 };
 
+export type ApprovalAction = 'provider.cloud' | 'capability.mutate' | 'agent.privileged' | 'workspace.write';
+
 export const api = {
+  // Approval is a daemon record for one exact operation. A control submits the
+  // grant id it receives here; a request flag never carries authority on its own.
+  requestApproval: (action: ApprovalAction, target: string) => json<{ id: string; action: string; target: string; expiresAt: string }>('/api/approvals', { method: 'POST', body: JSON.stringify({ action, target }) }),
+
   // /providers supplies the bootstrap health and settings shape.
   providerHealth: () => json<{ settings: { activeProvider: string; activeModel: string | null; cloudConfigured: boolean }; providers: Provider[] }>('/api/providers'),
   models: (provider?: string) => json<{ provider: string; models: string[] }>(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
@@ -100,7 +106,7 @@ export const api = {
   mcpServers: () => json<{ servers: McpServer[] }>('/api/mcp'),
   addMcpServer: (data: { name: string; type?: string; endpoint: string; tools?: McpTool[] }) => json<McpServer>('/api/mcp', { method: 'POST', body: JSON.stringify(data) }),
   pingMcpServer: (id: string) => json<{ status: string; latencyMs: number }>(`/api/mcp/${id}/ping`, { method: 'POST', body: '{}' }),
-  executeMcpTool: (id: string, toolName: string, params: Record<string, unknown> = {}) => json<{ success: boolean; tool: string; output: string; durationMs: number }>(`/api/mcp/${id}/tools/${toolName}/execute`, { method: 'POST', body: JSON.stringify(params) }),
+  executeMcpTool: (id: string, toolName: string, params: Record<string, unknown> = {}, approvals: string[] = []) => json<{ success: boolean; tool: string; output: string; durationMs: number }>(`/api/mcp/${id}/tools/${toolName}/execute`, { method: 'POST', body: JSON.stringify({ ...params, approvals }) }),
   deleteMcpServer: (id: string) => json<{ removed: boolean }>(`/api/mcp/${id}`, { method: 'DELETE' }),
 
   // Model Orchestration API
@@ -115,7 +121,7 @@ export const api = {
   updateSkill: (id: string, data: Partial<SkillModule>) => json<SkillModule>(`/api/skills/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteSkill: (id: string) => json<{ removed: boolean }>(`/api/skills/${id}`, { method: 'DELETE' }),
   toggleSkill: (id: string) => json<SkillModule>(`/api/skills/${id}/toggle`, { method: 'POST', body: '{}' }),
-  executeSkill: (idOrCommand: string, input: string = '') => json<{ success: boolean; slashCommand: string; skillName: string; output: string; durationMs: number }>(`/api/skills/execute`, { method: 'POST', body: JSON.stringify({ command: idOrCommand, input }) }),
+  executeSkill: (idOrCommand: string, input: string = '', approvals: string[] = []) => json<{ success: boolean; slashCommand: string; skillName: string; output: string; durationMs: number }>(`/api/skills/execute`, { method: 'POST', body: JSON.stringify({ command: idOrCommand, input, approvals }) }),
   // Skill import accepts repository coordinates or GitHub URLs; export returns SKILL.md.
   importSkill: (source: string) => json<SkillModule>('/api/skills/import', { method: 'POST', body: JSON.stringify({ source }) }),
   exportSkill: (id: string) => json<SkillExport>(`/api/skills/${id}/export`),
@@ -132,7 +138,7 @@ export const api = {
   createAgent: (profile: Partial<AgentProfile>) => json<AgentProfile>('/api/agents', { method: 'POST', body: JSON.stringify(profile) }),
   updateAgent: (id: string, patch: Partial<AgentProfile>) => json<AgentProfile>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   deleteAgent: (id: string) => json<{ removed: boolean }>(`/api/agents/${id}`, { method: 'DELETE' }),
-  executeAgentRun: (options: { agentId?: string; agentIds?: string[]; objective: string; mode?: 'solo' | 'delegate' | 'panel' | 'debate'; conversationId?: string; requestedCapabilities?: string[]; approved?: boolean }) => json<AgentRun>('/api/agents/run', { method: 'POST', body: JSON.stringify(options) }),
+  executeAgentRun: (options: { agentId?: string; agentIds?: string[]; objective: string; mode?: 'solo' | 'delegate' | 'panel' | 'debate'; conversationId?: string; requestedCapabilities?: string[]; approvals?: string[] }) => json<AgentRun>('/api/agents/run', { method: 'POST', body: JSON.stringify(options) }),
   agentRuns: (conversationId?: string) => json<AgentRun[]>(`/api/runs${conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''}`),
 
   autoSummarizeMemory: () => json<{ addedCount: number; totalMemories: number }>('/api/memory/auto-summarize', { method: 'POST', body: '{}' }),
@@ -153,7 +159,8 @@ export const api = {
     const config = await setupDaemon();
     const baseUrl = getBaseUrl(config);
     const response = await fetch(`${baseUrl}/api/chat`, { method: 'POST', headers: { 'content-type': 'application/json', ...(config?.token ? { 'x-jarvis-token': config.token } : {}) }, body: JSON.stringify(payload) });
-    if (!response.ok || !response.body) throw new Error('Unable to open response stream.');
+    if (!response.ok) throw new Error((await parseJsonResponse<{ error?: string }>(response).catch(() => null))?.error || `Request failed (${response.status})`);
+    if (!response.body) throw new Error('Unable to open response stream.');
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
     while (true) {
       const { done, value } = await reader.read(); if (done) break;

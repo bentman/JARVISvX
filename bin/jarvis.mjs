@@ -86,7 +86,11 @@ async function ask(rawArgs) {
   let conversationId;
   if (values.resume) conversationId = (await client.conversation(values.resume))?.id;
   else if (values.continue) conversationId = (await client.conversations())[0]?.id;
-  const payload = { content, conversationId, providerId: values.provider, model: values.model, allowCloud: Boolean(values['allow-cloud']), allowToolWrites: Boolean(values['allow-tools']), origin: 'cli' };
+  const approvals = await client.approvals(
+    values['allow-cloud'] && { action: 'provider.cloud', target: values.provider || 'auto' },
+    values['allow-tools'] && { action: 'capability.mutate', target: 'any' },
+  );
+  const payload = { content, conversationId, providerId: values.provider, model: values.model, approvals, origin: 'cli' };
   for await (const event of client.chat(payload)) {
     if (values.json) { console.log(JSON.stringify(event)); continue; }
     if (event.type === 'token') process.stdout.write(event.value);
@@ -96,13 +100,17 @@ async function ask(rawArgs) {
 }
 async function agentCommand(list) {
   const [action, ...rest] = list;
-  if (action === 'list') { const agents = await client.agents(); console.log(agents.map((a) => `${a.id.padEnd(12)} ${a.name.padEnd(14)} adapter:${a.adapter}${a.cli ? `/${a.cli}` : ''}  voice:${a.voice}${a.isBuiltIn ? '' : '  (custom)'}`).join('\n') || 'No agents configured.'); return; }
+  if (action === 'list') { const agents = await client.agents(); console.log(agents.map((a) => `${a.id.padEnd(12)} ${a.name.padEnd(14)} adapter:${a.adapter}${a.cli ? `/${a.cli}` : ''}  voice:${a.voice}${a.isBuiltIn ? '' : '  (custom)'}${a.available === false ? '  [unavailable: CLI not installed for this session]' : ''}`).join('\n') || 'No agents configured.'); return; }
   if (action === 'run') {
     const { positional, values } = parseArgs(rest, { valueFlags: ['conversation'] });
     const [agentId, ...objectiveParts] = positional;
     const objective = objectiveParts.join(' ');
     if (!agentId || !objective) throw new Error('Usage: jarvis agent run <agentId> "<objective>" [--allow-cloud] [--approve] [--conversation <id>] [--json]');
-    const run = await client.runAgent({ agentId, objective, mode: 'solo', conversationId: values.conversation, approved: Boolean(values.approve), allowCloud: Boolean(values['allow-cloud']) });
+    const approvals = await client.approvals(
+      values.approve && { action: 'agent.privileged', target: agentId },
+      values['allow-cloud'] && { action: 'provider.cloud', target: 'auto' },
+    );
+    const run = await client.runAgent({ agentId, objective, mode: 'solo', conversationId: values.conversation, approvals });
     console.log(values.json ? JSON.stringify(run, null, 2) : (run.result || 'Agent run complete.'));
     return;
   }
@@ -112,7 +120,11 @@ async function agentCommand(list) {
     const agentIds = sep === -1 ? [] : positional.slice(0, sep);
     const objective = (sep === -1 ? [] : positional.slice(sep + 1)).join(' ');
     if (!agentIds.length || !objective) throw new Error(`Usage: jarvis agent ${action} agent1 agent2 -- "<objective>" [--allow-cloud] [--approve] [--json]`);
-    const run = await client.runAgent({ agentIds, objective, mode: action, conversationId: values.conversation, approved: Boolean(values.approve), allowCloud: Boolean(values['allow-cloud']) });
+    const approvals = await client.approvals(
+      ...(values.approve ? agentIds.map((id) => ({ action: 'agent.privileged', target: id })) : []),
+      values['allow-cloud'] && { action: 'provider.cloud', target: 'auto' },
+    );
+    const run = await client.runAgent({ agentIds, objective, mode: action, conversationId: values.conversation, approvals });
     console.log(values.json ? JSON.stringify(run, null, 2) : (run.result || 'Agent run complete.'));
     return;
   }
@@ -176,18 +188,22 @@ function Tui({ client }) {
       const prompt = parts.slice(1).join(' ');
       if (prompt) {
         setLines((items) => [...items, { role: 'you', content }, { role: 'jarvis', content: '' }]);
+        // Approval covers one agent run; the flags clear as the request is submitted.
+        const wantsAgent = agentApproved;
+        const wantsCloud = cloudApproved;
+        setAgentApproved(false);
+        setCloudApproved(false);
         try {
-          // Cloud approval covers one cloud-touching chat turn or agent run.
+          const approvals = await client.approvals(
+            wantsAgent && { action: 'agent.privileged', target: agentId },
+            wantsCloud && { action: 'provider.cloud', target: 'auto' },
+          );
           const run = await client.json('/agents/run', {
             method: 'POST',
-            body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approved: agentApproved, allowCloud: cloudApproved })
+            body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approvals })
           });
-          setAgentApproved(false);
-          setCloudApproved(false);
           setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result || 'Agent run complete.' }]);
         } catch (error) {
-          setAgentApproved(false);
-          setCloudApproved(false);
           setLines((items) => [...items, { role: 'error', content: error.message }]);
         }
         return;
@@ -196,12 +212,16 @@ function Tui({ client }) {
     const user = { role: 'you', content };
     setLines((items) => [...items, user, { role: 'jarvis', content: '' }]);
     let conversationId = conversation?.id;
-    const allowCloud = cloudApproved;
-    const allowToolWrites = toolsApproved;
+    const wantsCloud = cloudApproved;
+    const wantsTools = toolsApproved;
     setCloudApproved(false);
     setToolsApproved(false);
     try {
-      for await (const event of client.chat({ content, conversationId, providerId: provider === 'default' ? undefined : provider, model: model || undefined, allowCloud, allowToolWrites, origin: 'cli' })) {
+      const approvals = await client.approvals(
+        wantsCloud && { action: 'provider.cloud', target: provider === 'default' ? 'auto' : provider },
+        wantsTools && { action: 'capability.mutate', target: 'any' },
+      );
+      for await (const event of client.chat({ content, conversationId, providerId: provider === 'default' ? undefined : provider, model: model || undefined, approvals, origin: 'cli' })) {
         if (event.type === 'start') { conversationId = event.conversationId; activeTurn.current = conversationId; setConversation({ id: conversationId }); }
         if (event.type === 'token') setLines((items) => items.map((item, index) => index === items.length - 1 ? { ...item, content: item.content + event.value } : item));
         if (event.type === 'tool-call') setLines((items) => [...items, { role: 'system', content: `Running ${event.name}…` }, { role: 'jarvis', content: '' }]);
@@ -231,17 +251,21 @@ function Tui({ client }) {
         const objective = objParts.join('--').trim();
         if (!objective) return setLines((items) => [...items, { role: 'error', content: `Usage: /${name} agent1 agent2 -- objective` }]);
         setLines((items) => [...items, { role: 'you', content: `/${name} ${rawArgs}` }, { role: 'jarvis', content: `Running multi-agent ${name}...\n` }]);
+        const wantsAgent = agentApproved;
+        const wantsCloud = cloudApproved;
+        setAgentApproved(false);
+        setCloudApproved(false);
         try {
+          const approvals = await client.approvals(
+            ...(wantsAgent ? agentIds.map((id) => ({ action: 'agent.privileged', target: id })) : []),
+            wantsCloud && { action: 'provider.cloud', target: 'auto' },
+          );
           const run = await client.json('/agents/run', {
             method: 'POST',
-            body: JSON.stringify({ agentIds, objective, mode: name, conversationId: conversation?.id, approved: agentApproved, allowCloud: cloudApproved })
+            body: JSON.stringify({ agentIds, objective, mode: name, conversationId: conversation?.id, approvals })
           });
-          setAgentApproved(false);
-          setCloudApproved(false);
           setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result }]);
         } catch (error) {
-          setAgentApproved(false);
-          setCloudApproved(false);
           setLines((items) => [...items, { role: 'error', content: error.message }]);
         }
         return;

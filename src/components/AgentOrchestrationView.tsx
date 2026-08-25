@@ -96,6 +96,7 @@ const FALLBACK_PROFILES: AgentProfile[] = [
 ];
 
 // The API owns the voice list; this local set covers an unavailable bootstrap request.
+const PANEL_AGENT_IDS = ['architect', 'reviewer', 'adversary'];
 const FALLBACK_VOICES = ['af_bella', 'af_sarah', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'];
 
 const FALLBACK_EDITOR_OPTIONS: AgentEditorOptions = {
@@ -334,6 +335,7 @@ function AgentCard({
           <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2 flex-wrap">
             <Bot className="w-4 h-4 text-cyan-400" />
             {agent.name} <span className="text-xs text-cyan-400 font-normal">@{agent.id}</span>
+            {agent.available === false && <span className="text-xs text-tertiary font-normal" title={agent.unavailableReason || ''}> · CLI not installed</span>}
             {!agent.isBuiltIn && (
               <StatusBadge status="purple" className="text-caption">custom</StatusBadge>
             )}
@@ -481,7 +483,11 @@ export function AgentOrchestrationView() {
 
   const selectedProfile = agents.find((agent) => agent.id === selectedAgent);
   const selectedCapabilities = selectedMode === 'solo' ? selectedProfile?.capabilities ?? [] : [];
-  const needsApproval = selectedCapabilities.some((capability) => capability === 'workspace.write' || capability === 'shell');
+  // Every agent the chosen mode will run, so a privileged one in a panel or debate
+  // is approved the same way a privileged solo run is.
+  const runningAgentIds = selectedMode === 'solo' ? [selectedAgent] : PANEL_AGENT_IDS;
+  const privilegedAgentIds = runningAgentIds.filter((id) => (agents.find((agent) => agent.id === id)?.capabilities ?? []).some((capability) => capability === 'workspace.write' || capability === 'shell'));
+  const needsApproval = privilegedAgentIds.length > 0;
 
   const runBadgeStatus = (status: string) => {
     switch (status) {
@@ -535,17 +541,20 @@ export function AgentOrchestrationView() {
     e.preventDefault();
     if (!objective.trim()) return;
     setLoading(true);
+    // The approval control represents the next accepted run only.
+    const wanted = approved ? privilegedAgentIds : [];
+    setApproved(false);
     try {
+      const approvals = await Promise.all(wanted.map((id) => api.requestApproval('agent.privileged', id).then((grant) => grant.id)));
       await api.executeAgentRun({
         agentId: selectedAgent,
-        agentIds: ['architect', 'reviewer', 'adversary'],
+        agentIds: PANEL_AGENT_IDS,
         objective,
         mode: selectedMode,
         requestedCapabilities: selectedCapabilities,
-        approved: !needsApproval || approved
+        approvals
       });
       setObjective('');
-      setApproved(false);
       await loadData();
       setActiveTab('runs');
     } catch (err: any) {
@@ -621,7 +630,7 @@ export function AgentOrchestrationView() {
                   style={{ maxWidth: '240px' }}
                 >
                   {agents.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name} (@{a.id})</option>
+                    <option key={a.id} value={a.id} disabled={a.available === false}>{a.name} (@{a.id}){a.available === false ? ' — CLI not installed' : ''}</option>
                   ))}
                 </select>
               </>

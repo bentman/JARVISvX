@@ -7,14 +7,20 @@ import { test } from 'node:test';
 import { createJarvisApp } from '../lib/application.mjs';
 import { AgentRegistry } from '../lib/agents/registry.mjs';
 import { PolicyGate } from '../lib/agents/policy.mjs';
+import { createTurnAuthorization } from '../lib/authorization.mjs';
 import { ProcessAdapter } from '../lib/agents/adapters/process.mjs';
 import { AcpAdapter } from '../lib/agents/adapters/acp.mjs';
 import { AgentBusMcpServer } from '../lib/agents/agent-bus-mcp.mjs';
 import { JarvisDatabase } from '../lib/database.mjs';
 
+// Grants come from the daemon ledger, the same path a client request takes.
+const approve = (app, ...requests) => app.authorizationFor(requests.map((request) => app.issueApproval(request).id));
+
 function createTestApp() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-agent-runtime-'));
   const app = createJarvisApp({ database: new JarvisDatabase(path.join(directory, 'jarvis.sqlite')) });
+  // Agent runs need an approved root to use as their working directory.
+  app.db.addRoot(fs.realpathSync(directory));
   app.voice.bootstrap = {
     async install(id) {
       return { id, ready: true };
@@ -191,18 +197,19 @@ test('AgentRegistry.deleteAgent removes custom agents but refuses to remove buil
   });
 });
 
-test('PolicyGate evaluates capability intersection and workspace boundary', () => {
+test('PolicyGate evaluates capability intersection and workspace boundary', async () => {
   const policy = new PolicyGate();
+  const granted = createTurnAuthorization({ grants: [{ action: 'agent.privileged', target: 'builder' }] });
 
-  // Test allowed execution with approved privileged capability
   const res = policy.evaluate({
     agent: { id: 'builder', capabilities: ['workspace.read', 'workspace.write', 'shell'] },
     requestedCapabilities: ['workspace.write'],
-    approved: true
+    authorization: granted
   });
 
   assert.equal(res.allowed, true);
   assert.deepEqual(res.effectiveCapabilities, ['workspace.write']);
+  assert.equal(res.processMode, 'write');
 
   // Test policy rejection when agent lacks required capability
   const missingRes = policy.evaluate({
@@ -212,18 +219,19 @@ test('PolicyGate evaluates capability intersection and workspace boundary', () =
   assert.equal(missingRes.allowed, false);
   assert.equal(missingRes.requiresHumanApproval, false);
 
-  // Test approval requirement for privileged write/shell capabilities
+  // A grant for a different agent does not authorize this one.
+  const otherAgentGrant = createTurnAuthorization({ grants: [{ action: 'agent.privileged', target: 'researcher' }] });
   const unapprovedRes = policy.evaluate({
     agent: { id: 'builder', capabilities: ['workspace.read', 'workspace.write'] },
     requestedCapabilities: ['workspace.write'],
-    approved: false
+    authorization: otherAgentGrant
   });
   assert.equal(unapprovedRes.allowed, false);
   assert.equal(unapprovedRes.requiresHumanApproval, true);
 
   const cwd = process.cwd();
-  const isValidPath = policy.validateWorkspacePath(cwd, [cwd]);
-  assert.equal(isValidPath, true);
+  assert.equal(await policy.validateWorkspacePath(cwd, [cwd]), true);
+  assert.equal(await policy.validateWorkspacePath(cwd, []), false, 'a zero-root state fails closed');
 });
 
 test('Adapters probe status and generate tokens', async () => {
@@ -252,8 +260,9 @@ test('Adapters probe status and generate tokens', async () => {
 });
 
 // Direct provider access and coordinated agent runs enforce per-turn cloud approval.
-test('ProcessAdapter blocks a cloud-tagged provider without allowCloud, and permits it with allowCloud', async () => {
+test('ProcessAdapter blocks a cloud-tagged provider without a cloud grant, and permits it with one', async () => {
   const cloudProvider = {
+    id: 'cloud-1',
     tags: ['cloud'],
     async *streamChat() { yield 'should never stream without approval'; }
   };
@@ -267,58 +276,50 @@ test('ProcessAdapter blocks a cloud-tagged provider without allowCloud, and perm
   assert.match(blocked[0].error, /explicit approval/);
 
   const approved = [];
-  for await (const event of processAdapter.invoke({ prompt: 'test', agent, runId: 'run-2', allowCloud: true })) approved.push(event);
+  const authorization = createTurnAuthorization({ grants: [{ action: 'provider.cloud', target: 'cloud-1' }] });
+  for await (const event of processAdapter.invoke({ prompt: 'test', agent, runId: 'run-2', authorization })) approved.push(event);
   assert.ok(approved.some((e) => e.type === 'token' && e.value.includes('should never stream without approval')));
   assert.ok(approved.some((e) => e.type === 'completed'));
 });
 
-test('executeAgentRun threads allowCloud from the API options through to the adapter', async () => {
+test('executeAgentRun threads the turn authorization and effective capabilities through to the adapter', async () => {
   const { app, cleanup } = createTestApp();
   await app.initialize();
   const agent = app.agentRuntime.registry.get('researcher');
   app.agentRuntime.registry.profiles.set('researcher', { ...agent, adapter: 'process', capabilities: ['workspace.read'] });
-  let receivedAllowCloud;
+  let received;
   app.agentRuntime.adapters.set('process', {
-    async *invoke({ agent, runId, allowCloud }) {
-      receivedAllowCloud = allowCloud;
+    async *invoke({ agent, runId, authorization, processMode, cwd }) {
+      received = { authorization, processMode, cwd };
       yield { type: 'token', runId, agentId: agent.id, value: 'ok' };
       yield { type: 'completed', runId, agentId: agent.id };
     }
   });
 
   try {
-    await app.executeAgentRun({ agentId: 'researcher', objective: 'test', mode: 'solo', allowCloud: true });
-    assert.equal(receivedAllowCloud, true);
-
-    await app.executeAgentRun({ agentId: 'researcher', objective: 'test', mode: 'solo' });
-    assert.equal(receivedAllowCloud, false);
+    const authorization = approve(app, { action: 'provider.cloud', target: 'cloud-1' });
+    const run = await app.executeAgentRun({ agentId: 'researcher', objective: 'test', mode: 'solo', authorization });
+    assert.equal(received.authorization, authorization);
+    assert.equal(received.processMode, 'read-only', 'a read-only profile maps to the read-only process mode');
+    assert.deepEqual(JSON.parse(run.effective_capabilities), ['workspace.read']);
   } finally {
     cleanup();
   }
 });
 
-test('AcpAdapter reports missing CLI as a failed event', async () => {
+test('AcpAdapter rejects a CLI it cannot map to the requested process mode, before spawning', async () => {
   const acp = new AcpAdapter();
+  const agent = { id: 'missing', name: 'Missing CLI', voice: 'bf_isabella', instructions: '', capabilities: ['workspace.read'], command: 'definitely_missing_jarvisvx_cli' };
+
   const events = [];
-
-  for await (const event of acp.invoke({
-    prompt: 'ping',
-    runId: 'run-1',
-    agent: {
-      id: 'missing',
-      name: 'Missing CLI',
-      voice: 'bf_isabella',
-      instructions: '',
-      capabilities: ['workspace.read'],
-      command: 'definitely_missing_jarvisvx_cli'
-    }
-  })) {
-    events.push(event);
-  }
-
+  for await (const event of acp.invoke({ prompt: 'ping', runId: 'run-1', agent, cwd: process.cwd() })) events.push(event);
   assert.equal(events.length, 1);
   assert.equal(events[0].type, 'failed');
-  assert.match(events[0].error, /not available on PATH|ENOENT/);
+  assert.equal(events[0].code, 'unsupported_policy');
+
+  // A read-only profile never receives an edit-enabling argument.
+  assert.ok(!acp.buildCliArgs('codex', 'ping', '', 'read-only', process.cwd()).includes('workspace-write'));
+  assert.ok(acp.buildCliArgs('codex', 'ping', '', 'write', process.cwd()).includes('workspace-write'));
 });
 
 test('RunCoordinator executes solo, panel, and debate multi-agent runs', async () => {

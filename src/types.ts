@@ -57,6 +57,9 @@ export interface AgentProfile {
   instructions: string;
   // Built-in role identity is fixed; runtime wiring remains editable.
   isBuiltIn?: boolean;
+  // A shell-out profile is usable only where its CLI exists for the running session.
+  available?: boolean;
+  unavailableReason?: string | null;
 }
 
 // Editor options are the backend's accepted selector values and length limits.

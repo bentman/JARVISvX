@@ -43,8 +43,15 @@ test('slash skill stream events use the same conversation and turn id routing', 
   });
 
   try {
+    // A user-authored skill is approval-required, by slash invocation as well.
+    const denied = [];
+    for await (const event of app.chat({ content: '/echo hello', providerId: 'unused' })) denied.push(event);
+    assert.deepEqual(denied.map((event) => event.type), ['start', 'error']);
+    assert.equal(denied[1].code, 'approval_required');
+
+    const authorization = app.authorizationFor([app.issueApproval({ action: 'capability.mutate', target: 'echo' }).id]);
     const events = [];
-    for await (const event of app.chat({ content: '/echo hello', providerId: 'unused' })) events.push(event);
+    for await (const event of app.chat({ content: '/echo hello', conversationId: denied[0].conversationId, providerId: 'unused', authorization })) events.push(event);
     assert.deepEqual(events.map((event) => event.type), ['start', 'token', 'turn-complete']);
     assert.ok(events[0].conversationId);
     assert.ok(events[0].turnId);
