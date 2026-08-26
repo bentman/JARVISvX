@@ -103,11 +103,10 @@ Built-in agent definitions shall remain immutable defaults in
 `agentConfigPath` and merged by the agent registry. Normal UI editing shall not
 modify a tracked source file.
 
-The tracked `.jarvis/agents.json` file is legacy migration input for source
-installations. The first runtime that does not yet have `agentConfigPath` shall
-validate and import its overrides once. Once that migration path exists, the
-legacy file is seed data only and is never read as live executable
-configuration.
+These two layers are the whole system: code defaults, and one override file
+that moves with the data root. There is no seed file, no workspace-scoped
+profile source, and no adoption step. A start that changes nothing writes no
+override file; the first edit creates it.
 
 ### P2-R06: Provider credential key persistence
 

@@ -5,8 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 import { createJarvisApp } from '../lib/application.mjs';
-import { AgentRegistry } from '../lib/agents/registry.mjs';
-import { PROJECT_ROOT } from '../lib/runtime-paths.mjs';
+import { AgentRegistry, DEFAULT_AGENT_PROFILES } from '../lib/agents/registry.mjs';
 import { PolicyGate } from '../lib/agents/policy.mjs';
 import { createTurnAuthorization } from '../lib/authorization.mjs';
 import { ProcessAdapter } from '../lib/agents/adapters/process.mjs';
@@ -94,22 +93,20 @@ async function withScratchConfig(fn) {
   }
 }
 
-test('overrides seeded beside the source tree are adopted once into the runtime location', async () => {
+test('the built-in profiles are the defaults, and only the override file changes them', async () => {
   await withScratchConfig(async ({ configPath }) => {
-    const seedPath = path.join(PROJECT_ROOT, '.jarvis', 'agents.json');
-    const seedBefore = fs.readFileSync(seedPath, 'utf8');
-
     const registry = new AgentRegistry({ configPath });
     await registry.load();
-    assert.ok(fs.existsSync(configPath), 'the seeded overrides land at the runtime location');
-    assert.equal(fs.readFileSync(seedPath, 'utf8'), seedBefore, 'the seed is read, never rewritten');
+    assert.equal(fs.existsSync(configPath), false, 'a start that changes nothing writes no override file');
+    assert.equal(registry.get('architect').voice, DEFAULT_AGENT_PROFILES.architect.voice);
 
-    // A later edit is the only thing that changes the adopted file.
     await registry.updateAgent('architect', { voice: 'af_sarah' });
-    const adopted = fs.readFileSync(configPath, 'utf8');
-    await registry.load();
-    assert.equal(fs.readFileSync(configPath, 'utf8'), adopted, 'adoption does not run again over saved profiles');
-    assert.equal(registry.get('architect').voice, 'af_sarah');
+    assert.ok(fs.existsSync(configPath), 'an edit creates the override file');
+
+    const reloaded = new AgentRegistry({ configPath });
+    await reloaded.load();
+    assert.equal(reloaded.get('architect').voice, 'af_sarah', 'the override wins over the built-in default');
+    assert.equal(reloaded.get('reviewer').voice, DEFAULT_AGENT_PROFILES.reviewer.voice, 'untouched profiles keep their defaults');
   });
 });
 

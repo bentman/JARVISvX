@@ -167,18 +167,20 @@ sensitive, and raw skill source shall not be logged as authorization evidence.
 
 Approved workspace roots grant the read and write capabilities represented by
 workspace policy; they do not grant authority to define executable commands or
-arguments. Agent profiles loaded from a workspace may select only an
-application-owned adapter or CLI identifier and may customize fields declared
-safe for workspace scope. Command paths, process arguments, adapter identity,
-and capabilities shall be validated against application-owned allowlists
-before a profile enters the registry.
+arguments. The registry therefore reads agent profiles from exactly two
+sources: the built-in `DEFAULT_AGENT_PROFILES` in `lib/agents/registry.mjs`,
+and the single override file at `agentConfigPath` under the data root. No
+profile is read from a workspace root, so an approved directory cannot
+introduce a command by any path.
 
-The registry's application-owned configuration source is authoritative for
-executable wiring. Workspace profile data may override only the fields
-declared safe for workspace scope. A profile that contains an unknown adapter,
-CLI, command, argument field, or capability is rejected with its file and
-profile ID before any process can spawn. Runtime-path relocation of the
-application-owned source occurs in Phase 2 without changing this trust
+The override file may set identity, description, voice, instructions,
+capabilities, and an adapter and CLI identifier drawn from the application
+allowlists. `command` follows the CLI identifier rather than the file. Process
+arguments and every other field are outside an override's scope. A profile that
+names an unknown adapter, CLI, or capability, that sets a `command`
+disagreeing with its CLI, or that sets an out-of-scope field is rejected with
+its file path and profile ID before any process can spawn. Runtime-path
+relocation of `agentConfigPath` occurs in Phase 2 without changing this trust
 precedence.
 
 ## Implementation targets

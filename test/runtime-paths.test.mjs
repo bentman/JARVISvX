@@ -105,7 +105,7 @@ test('packaging declares its desktop targets and refuses an undeclared pair', ()
 
   // Runtime state and operator secrets stay out of the bundle.
   const { ignore } = packagerOptions(selectTarget(['--platform', 'linux', '--arch', 'x64']));
-  for (const candidate of ['/data/', '/cache/', '/models/', '/.jarvis/', '/.env']) {
+  for (const candidate of ['/data/', '/cache/', '/models/', '/.env']) {
     assert.ok(ignore.some((rule) => new RegExp(rule).test(candidate)), `${candidate} should be excluded`);
   }
 });

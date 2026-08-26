@@ -64,8 +64,8 @@ converges; publication does not depend on renaming onto an existing directory,
 which is not portable.
 
 **Agent overrides are runtime state.** The registry writes to `agentConfigPath`
-under the data root. Overrides seeded beside the source tree are validated and
-adopted once, and desktop packaging excludes `.jarvis/` and `.env`.
+under the data root, and that file is the only override source; there is no seed
+file beside the source tree. Desktop packaging excludes `.env`.
 
 **Declared packaging targets.** `scripts/package-desktop.mjs` names its
 platform/arch targets in a table with the icon each one uses. The host target is

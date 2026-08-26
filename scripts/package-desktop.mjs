@@ -13,7 +13,6 @@ export const TARGETS = {
 
 export const PACKAGE_IGNORE = [
   '/(?:cache|data|models|docs|test|release)(?:/|$)',
-  '/\\.jarvis(?:/|$)',
   '/\\.env',
   '/(?:ProjectPlan|ProjectVision)\\.md$'
 ];

@@ -41,19 +41,27 @@ function fixtureManifest() {
   }));
 }
 
+// Both roots resolve inside the temporary directory, so the legacy root a start
+// would migrate from holds nothing and no migration runs. Reading the ambient
+// environment here would instead leave the legacy root pointing at the
+// repository's own data directory, and starting would move it.
+async function isolatedPaths(directory) {
+  const { createRuntimePaths } = await import('../lib/runtime-paths.mjs');
+  return createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } });
+}
+
 test('daemon owns an authenticated loopback API and shares assistant events', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-daemon-'));
-  process.env.JARVIS_DATA_DIR = directory;
-  process.env.JARVIS_MODEL_DIR = path.join(directory, 'models');
+  const paths = await isolatedPaths(directory);
   for (const model of voiceModelManifest) {
     for (const [file] of model.files) {
-      const target = path.join(process.env.JARVIS_MODEL_DIR, model.directory, file);
+      const target = path.join(paths.modelRoot, model.directory, file);
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, file === 'voices-v1.0.bin' ? 'fixture-voices' : 'fixture-model');
     }
   }
   const { startDaemon } = await import('../lib/daemon.mjs');
-  const daemon = await startDaemon({ port: 0, token: 'test-token', voiceManifest: fixtureManifest() });
+  const daemon = await startDaemon({ port: 0, token: 'test-token', paths, voiceManifest: fixtureManifest() });
   // Voice acquisition runs alongside startup, so let it settle before asserting
   // on the event stream it also publishes to.
   await daemon.voiceReady;
@@ -110,16 +118,14 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
   } finally {
     await daemon.close();
     await fs.rm(directory, { recursive: true, force: true });
-    delete process.env.JARVIS_DATA_DIR;
-    delete process.env.JARVIS_MODEL_DIR;
   }
 });
 
 test('resource routes report the right status, and the session bootstrap is loopback and origin bound', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-routes-'));
-  process.env.JARVIS_DATA_DIR = directory;
+  const paths = await isolatedPaths(directory);
   const { startDaemon } = await import('../lib/daemon.mjs');
-  const daemon = await startDaemon({ port: 0, token: 'route-test-token', voiceManifest: fixtureManifest() });
+  const daemon = await startDaemon({ port: 0, token: 'route-test-token', paths, voiceManifest: fixtureManifest() });
   const base = `http://127.0.0.1:${daemon.port}`;
   const call = (route, options = {}) => fetch(base + route, { ...options, headers: { 'content-type': 'application/json', 'x-jarvis-token': 'route-test-token', ...options.headers } });
 
@@ -150,7 +156,6 @@ test('resource routes report the right status, and the session bootstrap is loop
   } finally {
     await daemon.close();
     await fs.rm(directory, { recursive: true, force: true });
-    delete process.env.JARVIS_DATA_DIR;
   }
 });
 
@@ -168,13 +173,9 @@ test('electron navigation carries no daemon token', async () => {
 
 async function withDataRoot(fn) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-lock-'));
-  const previous = process.env.JARVIS_DATA_DIR;
-  process.env.JARVIS_DATA_DIR = directory;
-  const { createRuntimePaths } = await import('../lib/runtime-paths.mjs');
   try {
-    await fn({ directory, paths: createRuntimePaths() });
+    await fn({ directory, paths: await isolatedPaths(directory) });
   } finally {
-    if (previous === undefined) delete process.env.JARVIS_DATA_DIR; else process.env.JARVIS_DATA_DIR = previous;
     await fs.rm(directory, { recursive: true, force: true });
   }
 }

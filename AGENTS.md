@@ -57,26 +57,6 @@ for product intent.
   does not keep a changelog or capability inventory — git history and the
   current code are the record.
 
-## Testing
-
-- Scope verification to the blast radius of the change: a comment- or
-  docstring-only edit needs `npm run lint` at most; a change to one module
-  needs just its test file; reserve the full `npm test` run for a natural
-  milestone (end of a phase, before reporting a task done), not every
-  intermediate edit.
-- A failure traced to the execution environment (a sandboxed filesystem
-  that can't delete files, a native module built for the wrong OS/arch) is
-  reported as an environment artifact with its root cause, not silently
-  skipped or treated as a regression.
-
-## Git
-
-Local, reversible operations — commit, `git rm --cached`, dry-run checks
-like `git merge-tree` — are fine to run directly. `git push`/`git pull`/
-`git merge` against `origin`, and any history rewrite (`reset --hard`,
-`rebase`, `clean -f`), are the repo owner's to run or explicitly approve
-first.
-
 ## Security
 
 - Cloud-tagged provider turns require explicit per-turn approval
@@ -87,8 +67,42 @@ first.
 - Provider API keys are stored only through `lib/database.mjs`'s existing
   encrypted column — never logged, never persisted elsewhere.
 
+## Testing
+
+- Scope verification to the blast radius of the change: a comment- or
+  docstring-only edit needs `npm run lint` at most; a change to one module
+  needs just its test file; reserve the full `npm test` run — on Windows and
+  Linux both — for a natural milestone (end of a phase, before reporting a
+  task done), not every intermediate edit.
+- A test earns its place by failing when the behavior it names is broken.
+  Name that failure in one line, or don't add the test.
+- A test constructs the state it needs. Never assert on ambient state — the
+  working tree, a free port, an absent service, an environment variable the
+  test did not set — and close every handle it opens on the success and
+  failure paths.
+- When a test goes red the code is wrong until shown otherwise; changing the
+  test to make it pass requires stating what it asserted incorrectly.
+- Extend or parameterize an existing test unless the case is a distinct
+  contract, branch, boundary, or regression the existing shape can't express.
+- A failure traced to the execution environment (a sandboxed filesystem
+  that can't delete files, a native module built for the wrong OS/arch) is
+  reported as an environment artifact with its root cause, not silently
+  skipped or treated as a regression.
+- Don't rerun an unchanged passing command, and don't repeat a failing one
+  with nothing changed — diagnose it or report the blocker.
+
 ## Reporting
 
-Calibrate the summary sentence to the weakest verified claim in the same
-report, not the strongest. If something was checked by unit test only, say
-so in the summary line itself, not buried in a caveat underneath.
+- Calibrate the summary sentence to the weakest verified claim in the same
+  report, not the strongest. If something was checked by unit test only, say
+  so in the summary line itself, not buried in a caveat underneath.
+- Show the evidence — the command, the platform, and what it covered. Test
+  count and repeated green runs are not completion evidence.
+
+## Git
+
+Local, reversible operations — commit, `git rm --cached`, dry-run checks
+like `git merge-tree` — are fine to run directly. `git push`/`git pull`/
+`git merge` against `origin`, and any history rewrite (`reset --hard`,
+`rebase`, `clean -f`), are the repo owner's to run or explicitly approve
+first.

@@ -76,13 +76,14 @@ application-owned table of argument forms per CLI and mode; a pair with no entry
 rejects the run with `unsupported_policy` before the process starts. Runs record
 the effective adapter and capability set.
 
-**Profile trust.** `DEFAULT_AGENT_PROFILES` and the application-owned
-`.jarvis/agents.json` are authoritative for executable wiring. A profile read from
-a workspace root may set identity, instructions, voice, capabilities, and an
-adapter and CLI drawn from the application allowlists; its command is derived from
-the CLI. A profile naming an unknown adapter, CLI, capability, or any
-out-of-scope field is rejected with its file path and profile id before it enters
-the registry.
+**Profile trust.** Profiles come from two sources only: `DEFAULT_AGENT_PROFILES`
+in code, and the override file at `agentConfigPath` under the data root. No
+profile is read from a workspace root, so an approved directory cannot introduce
+a command. An override may set identity, instructions, voice, capabilities, and
+an adapter and CLI drawn from the application allowlists; its command follows the
+CLI. A profile naming an unknown adapter, CLI, capability, a command disagreeing
+with its CLI, or any out-of-scope field is rejected with its file path and
+profile id before it enters the registry.
 
 **Denial and audit.** A denial reaches no provider, process, endpoint, or write,
 and produces the same typed error for every origin. `authorization_audit` records

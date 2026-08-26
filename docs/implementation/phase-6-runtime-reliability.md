@@ -48,7 +48,8 @@ or fail the instance-identity check.
 
 Startup failure and normal shutdown shall close HTTP, provider, worker, and
 database resources before releasing the lock and discovery record owned by
-that instance.
+that instance. Normal shutdown shall also wait for voice-model acquisition to
+settle, so no install writes into the model root after `close()` returns.
 
 ### P6-R02: Readiness publication
 

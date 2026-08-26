@@ -52,6 +52,22 @@ jarvis
 Copy `.env.example` to `.env` and adjust — it documents every variable (ports,
 provider URLs, data directory, cloud credentials) inline.
 
+### Moving the data directory
+
+`JARVIS_DATA_DIR` points JARVIS at a different data directory. When data already
+exists in the current one, the move is authorized once rather than happening as a
+side effect of whatever command ran next. The desktop host asks; every other
+start refuses and names both paths.
+
+Set the new location in `.env`, then authorize the single run that moves it:
+
+```powershell
+$env:JARVIS_DATA_MIGRATE=1; npm run dev
+```
+
+Later starts need nothing: the data is already at the new location, so there is
+no move left to authorize.
+
 ## Next Steps
 
 - Using the desktop UI day-to-day → [OperatorsGuide-GUI.md](OperatorsGuide-GUI.md)

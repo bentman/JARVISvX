@@ -41,7 +41,18 @@ async function withDaemon(fn) {
     }
   }
   const { startDaemon } = await import('../lib/daemon.mjs');
-  const daemon = await startDaemon({ port: 0, token: 'cli-test-token', voiceManifest: fixtureManifest() });
+  const { createRuntimePaths } = await import('../lib/runtime-paths.mjs');
+  // The scratch directory is the whole runtime root, not a data root grafted
+  // onto the repo. Resolving paths any other way asks the daemon to relocate
+  // the installation's own data directory, which it refuses.
+  const paths = createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory, JARVIS_MODEL_DIR: modelDir } });
+  const daemon = await startDaemon({ port: 0, token: 'cli-test-token', voiceManifest: fixtureManifest(), paths });
+  // A fresh database seeds local providers pointed at loopback. On a machine
+  // that happens to be running Ollama or llama.cpp one of them answers, so the
+  // tests that assert a turn cannot complete would pass or fail by what the
+  // developer has installed. Clearing them makes the state the tests describe
+  // the state they actually run against.
+  for (const provider of daemon.jarvis.listProviders()) daemon.jarvis.deleteProvider(provider.id);
   try {
     await fn({ directory, daemon, env: { ...process.env, JARVIS_DATA_DIR: directory, JARVIS_MODEL_DIR: modelDir } });
   } finally {

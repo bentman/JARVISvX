@@ -30,16 +30,23 @@ test('provider credentials round-trip against key material that belongs to the d
   delete process.env.JARVIS_KEY_SALT;
   try {
     const dataRoot = path.join(directory, 'data');
+    // The installation's own key material legitimately exists on any machine
+    // that has run the application, so absence is not the thing to assert. What
+    // must hold is that a database at its own root leaves that file untouched.
+    const installedKey = path.join(PROJECT_ROOT, 'data', 'provider.key');
+    const installedKeyBefore = fs.existsSync(installedKey) ? fs.statSync(installedKey).mtimeMs : null;
     const db = new JarvisDatabase({ dataRoot });
     const created = db.addProvider({ ...details, api_key: 'file-backed-secret' });
 
     assert.equal(db.providerApiKey(created.id), 'file-backed-secret');
     assert.ok(fs.existsSync(path.join(dataRoot, 'provider.key')), 'key material belongs beside its database');
-    assert.ok(!fs.existsSync(path.join(PROJECT_ROOT, 'data', 'provider.key')),
+    assert.equal(fs.existsSync(installedKey) ? fs.statSync(installedKey).mtimeMs : null, installedKeyBefore,
       'a database at its own root must not write key material into the installation data directory');
     db.close();
 
-    assert.equal(new JarvisDatabase({ dataRoot }).providerApiKey(created.id), 'file-backed-secret');
+    const reopened = new JarvisDatabase({ dataRoot });
+    assert.equal(reopened.providerApiKey(created.id), 'file-backed-secret');
+    reopened.close();
 
     // An environment-supplied salt is external configuration and needs no file.
     process.env.JARVIS_KEY_SALT = 'portable-salt';
