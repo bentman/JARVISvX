@@ -182,3 +182,24 @@ test('an unconstrained importance column migrates every unrecognized value to me
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('the stale seeded stack fact is corrected in place, and an operator-edited row is left alone', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-stack-fact-'));
+  const dbPath = path.join(directory, 'jarvis.sqlite');
+  const stale = 'Built with React 19, Tailwind CSS, Lucide icons, and Canvas particle effects.';
+
+  const before = new JarvisDatabase(dbPath);
+  // Stand in for a database seeded before the correction.
+  before.db.prepare('UPDATE memories SET value=? WHERE id=?').run(stale, 'mem-3');
+  before.db.prepare('UPDATE memories SET value=? WHERE id=?').run('My own note about the frontend.', 'mem-1');
+  before.close();
+
+  const after = new JarvisDatabase(dbPath);
+  const stack = after.db.prepare('SELECT value FROM memories WHERE id=?').get('mem-3').value;
+  assert.notEqual(stack, stale, 'the stale row is replaced');
+  assert.ok(!/Tailwind|Canvas/.test(stack), 'and no longer names a stack this project does not have');
+  assert.equal(after.db.prepare('SELECT value FROM memories WHERE id=?').get('mem-1').value, 'My own note about the frontend.', 'an operator-edited row is untouched');
+  after.close();
+
+  fs.rmSync(directory, { recursive: true, force: true });
+});

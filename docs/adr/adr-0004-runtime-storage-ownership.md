@@ -57,7 +57,11 @@ it is reported before it is opened for use.
 **One migration.** `startDaemon()` owns the single invocation. The desktop host
 supplies an interactive conflict callback; other callers use the non-interactive
 merge policy. A decision outside `import` or `overwrite` raises a typed conflict
-and leaves both directories intact.
+and leaves both directories intact. The move stages beside the destination and
+validates the staged tree against the source before publishing it and retiring
+the source, so an interruption leaves one complete copy and re-running
+converges; publication does not depend on renaming onto an existing directory,
+which is not portable.
 
 **Agent overrides are runtime state.** The registry writes to `agentConfigPath`
 under the data root. Overrides seeded beside the source tree are validated and
@@ -76,6 +80,8 @@ selected by default; an undeclared pair is refused before packaging starts.
   one model installation.
 - A database and its file-backed key travel together, and a separation is caught
   at startup rather than surfacing as unreadable credentials later.
+- Relocating a data root moves the operator's directory, contents and all; an
+  interrupted move never leaves the operator without a complete copy.
 - Saving an agent profile no longer modifies a tracked file, and the profile
   survives reinstalling over the source tree.
 - Adding a desktop target is a table entry; building the artifacts each target

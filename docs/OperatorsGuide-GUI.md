@@ -87,6 +87,15 @@ custom agents. To run an agent, use `@agentid objective` in chat, or `/panel`/`/
 for multi-agent runs (see [OperatorsGuide-CLI.md](OperatorsGuide-CLI.md) for the CLI
 equivalents).
 
+The panel's **Execute Run** form takes a mode and an objective. In `solo` mode you
+pick one agent. In `panel` and `debate` you tick **Participants**; leaving the
+selection empty runs the daemon's default roster for that mode — Architect,
+Reviewer, and Security for a panel; Architect, Reviewer, and Adversary for a
+debate — and the form names the roster it will use. Panel and debate both end
+with a synthesis by the first participant, which receives every other
+participant's labelled result. The approval checkbox appears whenever any agent
+that will actually run holds a privileged capability.
+
 ### Providers
 
 Open with the Database icon. **New Provider** lets you pick a protocol

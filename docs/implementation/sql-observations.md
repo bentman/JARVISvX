@@ -103,3 +103,47 @@ Two options for an Architect to weigh, neither applied:
 - Require the destination to be explicit for non-interactive callers, so a
   transient environment variable cannot relocate the durable directory as a side
   effect of an unrelated run.
+
+## Phase 7 addendum
+
+Phase 7 added the first indexes this schema has ever had. Four, each attached to
+one repeated filtered application query, and each measured with
+`EXPLAIN QUERY PLAN` before and after:
+
+| Index | Owning query | Before | After |
+|---|---|---|---|
+| `idx_messages_conversation` | every conversation open | `SCAN` + temp b-tree | indexed `SEARCH`, no sort |
+| `idx_agent_runs_conversation` | the runs panel | `SCAN` + temp b-tree | indexed `SEARCH`, no sort |
+| `idx_workspace_edits_status` | the edit-review panel | `SCAN` + temp b-tree | indexed `SEARCH`, no sort |
+| `idx_memories_category` | memory selection on every turn | `SCAN` + temp b-tree | indexed `SEARCH`, no sort |
+
+All nineteen list queries also gained a deterministic tie-breaker, so equal
+timestamps no longer return in undefined order.
+
+The WAL / `synchronous=NORMAL` change described above was **not** applied and
+remains open for an Architect. Suite duration is unchanged in character: 182
+tests in roughly 650 s, still dominated by `JarvisDatabase` construction rather
+than query volume. The test count rose because `npm test` now discovers files by
+glob instead of naming them, which added `test/mcp-stdio.test.mjs` — a file that
+had never run in any reported suite total before.
+
+### Two things worth an Architect's attention
+
+**A self-contradicting health payload, now fixed.** `/api/health` reported
+`lifecycle: ready` while simultaneously listing voice as degraded with the reason
+"Voice models are still being acquired" — after acquisition had completed.
+`VoiceRuntime.initialize()` set its `ready` flag but never moved `this.state` off
+`'bootstrap'`, even though a `'ready'` state already existed in the vocabulary
+with the correct message. One line in `lib/voice-runtime.mjs` transitions the
+state once every model verifies. This was found by running the daemon from a
+clone and waiting for `voiceReady`, not by reading the code — the inconsistency
+only appears after the background bootstrap finishes, which no test had awaited.
+
+**The Phase 6 Kokoro skips were an artifact, not an environment limit.** Phase 6
+reported three Electron Kokoro worker tests skipping in the full suite while
+passing in isolation, and recorded it as an unexplained environment artifact.
+Under glob discovery they pass: 182 of 182, zero skipped. The cause was the
+hand-maintained file list, not the model bundle — which is the same class of
+defect as `test/mcp-stdio.test.mjs` never running. Both are resolved by
+discovery, and neither would have been visible while the list was maintained by
+hand.

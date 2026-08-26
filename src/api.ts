@@ -38,11 +38,21 @@ const parseJsonResponse = async <T>(response: Response): Promise<T> => {
   throw new Error(preview ? `Expected JSON but received ${contentType || 'unknown content'}: ${preview}` : `Expected JSON but received ${contentType || 'unknown content'}.`);
 };
 
-const json = async <T>(url: string, options?: RequestInit): Promise<T> => {
+// Every request is bounded, and the bound reaches the underlying fetch rather
+// than abandoning a request that keeps running.
+const REQUEST_TIMEOUT_MS = 30_000;
+
+// Equivalent concurrent reads share one request. Only GETs qualify: a mutation
+// must reach the daemon once per call.
+const inFlight = new Map<string, Promise<unknown>>();
+
+const request = async <T>(url: string, options?: RequestInit): Promise<T> => {
   const config = await setupDaemon();
   const baseUrl = getBaseUrl(config);
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const response = await fetch(`${baseUrl}${url}`, {
     ...options,
+    signal: options?.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
     headers: { 'content-type': 'application/json', ...(config?.token ? { 'x-jarvis-token': config.token } : {}), ...options?.headers }
   });
   if (!response.ok) {
@@ -50,6 +60,17 @@ const json = async <T>(url: string, options?: RequestInit): Promise<T> => {
     throw new Error(body.error || `Request failed (${response.status})`);
   }
   return response.status === 204 ? undefined as T : parseJsonResponse<T>(response);
+};
+
+const json = <T>(url: string, options?: RequestInit): Promise<T> => {
+  // A caller-supplied signal makes the request cancellable on its own terms, so
+  // it is never shared with another caller.
+  if ((options?.method || 'GET') !== 'GET' || options?.signal) return request<T>(url, options);
+  const shared = inFlight.get(url);
+  if (shared) return shared as Promise<T>;
+  const pending = request<T>(url, options).finally(() => { inFlight.delete(url); });
+  inFlight.set(url, pending);
+  return pending as Promise<T>;
 };
 
 export type ApprovalAction = 'provider.cloud' | 'capability.mutate' | 'agent.privileged' | 'workspace.write';
@@ -61,7 +82,7 @@ export const api = {
 
   // /providers supplies the bootstrap health and settings shape.
   providerHealth: () => json<{ settings: EffectiveSettings; providers: Provider[] }>('/api/providers'),
-  models: (provider?: string) => json<{ provider: string; models: string[] }>(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
+  models: (provider?: string, signal?: AbortSignal) => json<{ provider: string; models: string[] }>(`/api/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`, signal ? { signal } : undefined),
 
   // Registry CRUD uses /provider-registry to preserve the /providers response contract.
   providers: () => json<ProviderRecord[]>('/api/provider-registry'),
@@ -72,7 +93,7 @@ export const api = {
   toggleProvider: (id: string) => json<ProviderRecord>(`/api/provider-registry/${id}/toggle`, { method: 'POST', body: '{}' }),
   probeProviderModels: (data: { protocol: ProviderProtocol; baseUrl: string; apiKey?: string }) =>
     json<{ available: boolean; models: string[]; reason?: string }>('/api/provider-registry/probe', { method: 'POST', body: JSON.stringify(data) }),
-  diagnostics: () => json<Diagnostics>('/api/diagnostics'),
+  diagnostics: (signal?: AbortSignal) => json<Diagnostics>('/api/diagnostics', signal ? { signal } : undefined),
   voice: () => json<VoiceRuntimeStatus>('/api/voice'),
   bootstrapVoice: (id: string) => json(`/api/voice/bootstrap/${id}`, { method: 'POST', body: '{}' }),
   setListening: (enabled: boolean) => json<void>('/api/voice/enabled', { method: 'POST', body: JSON.stringify({ enabled }) }),

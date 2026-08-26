@@ -95,3 +95,37 @@ test('the client status unions mirror the runtime contract', () => {
   assert.deepEqual(unionAfter('status', 'export interface WorkspaceEdit'), [...WORKSPACE_EDIT_STATES].sort());
   assert.deepEqual(unionAfter('status', 'export interface McpServer'), [...MCP_HEALTH_STATES].sort());
 });
+
+test('every added index serves its owning query, and list queries break ties deterministically', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-index-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  try {
+    const plan = (sql) => db.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('probe').map((row) => row.detail).join(' | ');
+
+    const owned = [
+      ['idx_messages_conversation', 'SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at, id'],
+      ['idx_agent_runs_conversation', 'SELECT * FROM agent_runs WHERE conversation_id=? ORDER BY started_at DESC, id DESC'],
+      ['idx_workspace_edits_status', 'SELECT * FROM workspace_edits WHERE status=? ORDER BY created_at DESC, id DESC'],
+      ['idx_memories_category', 'SELECT * FROM memories WHERE category=? ORDER BY updated_at DESC, id DESC'],
+    ];
+    for (const [index, sql] of owned) {
+      const detail = plan(sql);
+      assert.ok(detail.includes(index), `${index} serves its query — got: ${detail}`);
+      assert.ok(!detail.includes('TEMP B-TREE'), `${index} also covers the ordering — got: ${detail}`);
+    }
+
+    // No index exists that no query asked for.
+    const declared = db.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'").all().map((row) => row.name).sort();
+    assert.deepEqual(declared, owned.map(([index]) => index).sort());
+
+    // Rows written within the same timestamp still come back in one fixed order.
+    const conversation = db.createConversation('ties');
+    for (const role of ['user', 'assistant', 'user']) db.addMessage(conversation.id, role, `${role} message`);
+    const first = db.messages(conversation.id).map((row) => row.id);
+    assert.deepEqual(db.messages(conversation.id).map((row) => row.id), first);
+    assert.equal(new Set(first).size, 3);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

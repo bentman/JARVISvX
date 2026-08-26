@@ -392,3 +392,38 @@ test('delegating to a privileged agent needs both the capability approval and th
     close();
   }
 });
+
+test('a cloud turn without its grant reaches no provider, and the same turn with the grant does', async () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    let streamed = 0;
+    useProvider(app, {
+      id: 'cloud-1', label: 'Cloud provider', tags: ['cloud'],
+      async listModels() { return ['cloud-model']; },
+      async *streamChat() { streamed += 1; yield 'answer'; },
+    });
+
+    const denied = [];
+    let refusal = null;
+    try {
+      for await (const event of app.chat({ content: 'ask the cloud', providerId: 'cloud-1', model: 'cloud-model' })) denied.push(event);
+    } catch (error) { refusal = error; }
+
+    assert.ok(refusal, 'the turn is refused rather than completing');
+    assert.equal(refusal.code, 'cloud_approval_required');
+    assert.equal(streamed, 0, 'a denied turn never invokes the provider');
+    assert.ok(!denied.some((event) => event.type === 'token'), 'no assistant output is produced');
+
+    const allowed = [];
+    for await (const event of app.chat({ content: 'ask the cloud', providerId: 'cloud-1', model: 'cloud-model', authorization: approve(app, { action: 'provider.cloud', target: 'cloud-1' }) })) allowed.push(event);
+    assert.equal(streamed, 1, 'the same turn reaches the provider once approved');
+    assert.ok(allowed.some((event) => event.type === 'token' && event.value === 'answer'));
+
+    // The ledger records both outcomes for the same action and target.
+    const audit = app.authorizationAudit(10).filter((entry) => entry.action === 'provider.cloud');
+    assert.deepEqual([...new Set(audit.map((entry) => entry.outcome))].sort(), ['allowed', 'denied']);
+  } finally {
+    close();
+  }
+});

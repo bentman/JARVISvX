@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { ModelConfig, ProviderRecord } from '../types';
 import {
@@ -23,8 +23,8 @@ const mergeModels = (...groups: string[][]) => Array.from(new Set(groups.flat().
 // or openai-compat tagged 'local' (i.e. llama.cpp/llama.app-style endpoints).
 const isLocalProvider = (p: ProviderRecord) => p.protocol === 'ollama' || (p.protocol === 'openai-compat' && p.tags?.includes('local'));
 
-async function discoverModelsFor(providers: ProviderRecord[]): Promise<string[]> {
-  const results = await Promise.all(providers.map((p) => api.models(p.id).then((res) => res.models).catch(() => [])));
+async function discoverModelsFor(providers: ProviderRecord[], signal?: AbortSignal): Promise<string[]> {
+  const results = await Promise.all(providers.map((p) => api.models(p.id, signal).then((res) => res.models).catch(() => [])));
   return mergeModels(...results);
 }
 
@@ -58,7 +58,7 @@ export function ModelOrchestrationView({
   const [cloudProviders, setCloudProviders] = useState<ProviderRecord[]>([]);
   const [selectedLocalProviderId, setSelectedLocalProviderId] = useState<string>('');
 
-  const loadOrchestrationData = async () => {
+  const loadOrchestrationData = async (signal?: AbortSignal) => {
     try {
       const [data, effective, registry] = await Promise.all([api.orchestration(), api.effectiveSettings(), api.providers()]);
       setModelConfig(data.settings);
@@ -73,19 +73,24 @@ export function ModelOrchestrationView({
 
       const discovered = await Promise.all([
         matchedLocal ? api.pingLocalEndpoint(matchedLocal.base_url).then((res) => res.models).catch(() => []) : Promise.resolve([]),
-        discoverModelsFor(locals),
+        discoverModelsFor(locals, signal),
       ]);
       const models = mergeModels(...discovered);
+      // A superseded probe does not get to replace newer state.
+      if (signal?.aborted) return;
       if (models.length > 0) {
         setDiscoveredModels(models);
       }
     } catch (err: any) {
+      if (signal?.aborted) return;
       setError(err.message || 'Failed to load orchestration data');
     }
   };
 
   useEffect(() => {
-    loadOrchestrationData();
+    const controller = new AbortController();
+    void loadOrchestrationData(controller.signal);
+    return () => controller.abort();
   }, []);
 
   const handleUpdateConfig = async (newConfig: ModelConfig) => {
@@ -134,17 +139,22 @@ export function ModelOrchestrationView({
     }
   };
 
+  // A second test supersedes the first rather than racing it.
+  const testController = useRef(new AbortController());
+
   const handleTestEndpoint = async () => {
     const provider = localProviders.find((p) => p.id === selectedLocalProviderId);
     if (!provider) {
       setError('Select a local provider below first.');
       return;
     }
+    testController.current.abort();
+    testController.current = new AbortController();
     setIsTesting(true);
     setTestResult(null);
     try {
       const result = await api.pingLocalEndpoint(provider.base_url);
-      const providerModels = await discoverModelsFor(localProviders);
+      const providerModels = await discoverModelsFor(localProviders, testController.current.signal);
       const models = mergeModels(result.models || [], providerModels);
       if (models.length > 0) {
         setDiscoveredModels(models);

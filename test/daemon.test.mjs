@@ -238,3 +238,47 @@ test('a failed startup leaves no lock behind', async () => {
     assert.equal(await fs.access(paths.lockPath).then(() => true, () => false), false, 'the lock is released when startup unwinds');
   });
 });
+
+test('startup writes its state under the resolved data root, and shutdown closes it cleanly', async () => {
+  await withDataRoot(async ({ directory, paths }) => {
+    const { startDaemon } = await import('../lib/daemon.mjs');
+    const daemon = await startDaemon({ port: 0, token: 'storage-token', paths, voiceManifest: fixtureManifest() });
+    const exists = (file) => fs.access(file).then(() => true, () => false);
+
+    try {
+      // Every mutable artifact resolves under the operator's data root, not the
+      // install tree the code was loaded from.
+      for (const file of [paths.databasePath, paths.lockPath, paths.discoveryPath, paths.providerKeyPath]) {
+        assert.ok(file.startsWith(directory + path.sep), `${path.basename(file)} resolves under the data root`);
+      }
+      for (const file of [paths.databasePath, paths.lockPath, paths.discoveryPath]) {
+        assert.ok(await exists(file), `${path.basename(file)} is written at startup`);
+      }
+
+      // Storage is writable through the public path, not merely present.
+      const conversation = daemon.jarvis.createConversation('storage check');
+      assert.ok(daemon.jarvis.conversation(conversation.id), 'a created conversation reads back');
+
+      // Key material is generated only when a credential needs it, and lands
+      // under the same root.
+      assert.equal(await exists(paths.providerKeyPath), false, 'no key material before a credential exists');
+      daemon.jarvis.db.addProvider({ name: 'Keyed', protocol: 'openai-compat', base_url: 'https://example.invalid', api_key: 'secret' });
+      assert.ok(await exists(paths.providerKeyPath), 'storing a credential writes its key material under the data root');
+    } finally {
+      await daemon.close();
+    }
+
+    assert.equal(await exists(paths.lockPath), false, 'shutdown removes the lock');
+    assert.equal(await exists(paths.discoveryPath), false, 'shutdown removes discovery');
+    assert.ok(await exists(paths.databasePath), 'the database survives shutdown');
+    assert.throws(() => daemon.jarvis.conversations(), 'the database is closed, not merely abandoned');
+
+    // A clean shutdown leaves the root reusable by the next start.
+    const again = await startDaemon({ port: 0, token: 'restart-token', paths, voiceManifest: fixtureManifest() });
+    try {
+      assert.ok(again.jarvis.conversations().some((item) => item.title === 'storage check'), 'persisted state survives a restart');
+    } finally {
+      await again.close();
+    }
+  });
+});

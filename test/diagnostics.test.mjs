@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeGpuInventory, classifyHost, shortCpuName } from '../lib/diagnostics.mjs';
+import { diagnostics, mergeGpuInventory, classifyHost, shortCpuName } from '../lib/diagnostics.mjs';
 
 test('uses a vendor driver VRAM report instead of a legacy Windows adapter value', () => {
   const inventory = mergeGpuInventory(
@@ -46,3 +46,22 @@ test('shortCpuName strips vendor trademark noise and clock-speed suffixes', () =
   assert.equal(shortCpuName(undefined), 'Unknown CPU');
 });
 
+
+test('a health probe that outruns its budget is aborted, not merely abandoned', async () => {
+  let aborted = false;
+  const slowProvider = {
+    id: 'slow-1',
+    label: 'Slow provider',
+    health(signal) {
+      // A real provider threads this signal into fetch; the stand-in only records
+      // that the budget reached it, so the reported result is the budget's.
+      return new Promise(() => { signal.addEventListener('abort', () => { aborted = true; }, { once: true }); });
+    },
+  };
+
+  const report = await diagnostics([slowProvider]);
+  const probed = report.providers.find((entry) => entry.id === 'slow-1');
+  assert.ok(aborted, 'the expired budget aborts the underlying request');
+  assert.equal(probed.available, false);
+  assert.match(probed.reason, /timeout/i);
+});

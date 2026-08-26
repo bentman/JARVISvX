@@ -27,21 +27,33 @@ All artifacts are kept inside the application directory. A packaged desktop
 build resolves the same layout beside its executable; `JARVIS_DATA_DIR`,
 `JARVIS_MODEL_DIR`, and `JARVIS_TEMP_DIR` relocate their roots.
 
-| Path | Contents |
-|---|---|
-| `models/wake` | Wake-word ONNX bundle |
-| `models/stt` | Whisper STT bundle |
-| `models/tts` | Kokoro TTS bundle |
-| `data/sql-db/jarvis.sqlite` | SQLite application database |
-| `data/daemon.lock` | Single-instance ownership lock while the daemon runs |
-| `data/daemon.json` | Loopback port, process identity, and client token discovery while the daemon runs |
-| `data/provider.key` | Auto-generated provider-credential salt when `JARVIS_KEY_SALT` is empty; preserve it with the database |
-| `data/agents.json` | Agent-profile overrides, written when a profile is saved |
-| `data/electron-profile` | Durable Electron user profile |
-| `cache/temp` | Download staging |
-| `cache/electron/session` | Re-creatable Chromium session state |
-| `cache/electron/logs` | Electron and daemon logs |
-| `cache/electron/crash-dumps` | Electron crash reports |
+Setting `JARVIS_DATA_DIR` **moves** the existing `data/` directory to the new
+root on the next start — it is a relocation, not a copy, and it carries the
+whole directory including files JARVIS did not write. Each root follows only its
+own variable: relocating the data root leaves `models/` and `cache/` where they
+are. The move is staged and validated before the source is retired, so an
+interruption leaves one complete copy and re-running converges.
+
+| Path | Contents | Follows |
+|---|---|---|
+| `models/wake` | Wake-word ONNX bundle | `JARVIS_MODEL_DIR` |
+| `models/stt` | Whisper STT bundle | `JARVIS_MODEL_DIR` |
+| `models/tts` | Kokoro TTS bundle | `JARVIS_MODEL_DIR` |
+| `data/sql-db/jarvis.sqlite` | SQLite application database | `JARVIS_DATA_DIR` |
+| `data/daemon.lock` | Single-instance ownership lock while the daemon runs; records the owner's PID, instance id, and when it was taken | `JARVIS_DATA_DIR` |
+| `data/daemon.json` | Loopback port, process identity, and client token discovery while the daemon runs | `JARVIS_DATA_DIR` |
+| `data/provider.key` | Provider-credential key material, generated on first stored credential when `JARVIS_KEY_SALT` is empty; preserve it with the database | `JARVIS_DATA_DIR` |
+| `data/agents.json` | Agent-profile overrides, written when a profile is saved | `JARVIS_DATA_DIR` |
+| `data/electron-profile` | Durable Electron user profile | `JARVIS_DATA_DIR` |
+| `cache/temp` | Download staging | `JARVIS_TEMP_DIR` |
+| `cache/electron/session` | Re-creatable Chromium session state | `JARVIS_TEMP_DIR` |
+| `cache/electron/logs` | Electron and daemon logs | `JARVIS_TEMP_DIR` |
+| `cache/electron/crash-dumps` | Electron crash reports | `JARVIS_TEMP_DIR` |
+
+The lock and discovery files exist only while the daemon is running; a clean
+shutdown removes both. A contender releases an existing lock only on evidence
+its owner is gone — the recorded process is absent **and** no instance answers
+the ownership probe as that owner.
 
 No data is written to `%APPDATA%` or a home-directory folder — this holds regardless of
 the working directory `jarvis` is launched from, since defaults are anchored to the
@@ -130,7 +142,17 @@ the daemon in-process instead of over HTTP, and separately runs a Kokoro
 TTS worker thread that the renderer drives directly over IPC (not through
 the daemon).
 
-**lib/** modules: `application`, `daemon`, `database`, `diagnostics`, `event-hub`, `mcp-skills`, `memory-engine`, `model-bootstrap`, `orchestrator`, `providers/` (provider registry, tag-based routing), `reasoning-stream`, `tools`, `voice-runtime`, `voice-transcript`, `api`.
+**lib/** modules: `api`, `application`, `authorization`, `capabilities`, `contracts`, `daemon`, `daemon-client`, `data-migration`, `database`, `diagnostics`, `event-hub`, `mcp-skills`, `mcp-stdio`, `memory-engine`, `model-bootstrap`, `orchestrator`, `providers/` (provider registry, tag-based routing), `reasoning-stream`, `runtime-paths`, `skills-source`, `tools`, `voice-runtime`, `voice-transcript`, plus `agents/` (registry, coordinator, policy, adapters).
+
+The daemon reports a lifecycle state — `starting`, `ready`, `degraded`, or
+`stopping` — through `/api/health` and the authenticated `/daemon/status` probe.
+Core services gate readiness; voice-model acquisition does not, so a cold start
+serves text while it reports `degraded` with the subsystem and its recovery
+named. Turns are refused with `not_ready` only while `starting`.
+
+Voice model artifacts are pinned to immutable revisions and verified by declared
+size and sha256 before use, so a truncated or substituted file is replaced rather
+than trusted.
 
 ## Safety
 

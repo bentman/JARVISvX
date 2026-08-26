@@ -163,3 +163,12 @@ jarvis help          # full command reference
 
 `version` and `help` never connect to a daemon — they answer immediately even if
 none is running.
+
+### Exit status
+
+Every command reports its result to the shell, so `jarvis` composes with scripts
+and CI. A command exits non-zero when its turn ends in an error or cancellation,
+when a provider is unavailable, when an approval is denied, when an identifier is
+unknown, or when an agent run fails. Reads and successful operations — `doctor`,
+`daemon`, `settings get`, and the various `list` commands — exit zero. Plain and
+`--json` output report the same result.
