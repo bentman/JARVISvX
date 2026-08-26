@@ -235,7 +235,13 @@ test('a failure before publication leaves the source complete and no staging beh
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-test('a failure partway through staging keeps the source and discards the partial copy', async () => {
+// The copy is failed by removing read permission, which Windows does not model:
+// chmod there controls the read-only attribute and cannot deny a read. The
+// preceding case covers the same guarantee through a portable failure.
+const UNREADABLE_SOURCE_SKIP = process.platform === 'win32'
+  && 'POSIX mode bits cannot deny read on Windows.';
+
+test('a failure partway through staging keeps the source and discards the partial copy', { skip: UNREADABLE_SOURCE_SKIP }, async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-migrate-partial-'));
   const source = path.join(base, 'source');
   const target = path.join(base, 'target');
