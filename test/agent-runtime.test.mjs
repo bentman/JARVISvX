@@ -628,3 +628,52 @@ test('AgentBusMcpServer.agents_send delegates to AgentRuntime.sendToRun instead 
     cleanup();
   }
 });
+
+test('a run with no named agents uses the published roster for its mode, and a named selection replaces it', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initialize();
+  useDeterministicProcessAgents(app, ['architect', 'reviewer', 'adversary', 'security']);
+
+  try {
+    const rosters = app.agentEditorOptions().defaultRosters;
+    assert.deepEqual(rosters.panel, ['architect', 'reviewer', 'security']);
+    assert.deepEqual(rosters.debate, ['architect', 'reviewer', 'adversary']);
+
+    const panel = await app.executeAgentRun({ objective: 'Evaluate the storage change', mode: 'panel' });
+    for (const id of rosters.panel) assert.ok(panel.result.includes(`(${id})`), `panel default includes ${id}`);
+    assert.ok(!panel.result.includes('(adversary)'), 'the panel default is not the debate roster');
+
+    const debate = await app.executeAgentRun({ objective: 'Evaluate the storage change', mode: 'debate' });
+    for (const id of rosters.debate) assert.ok(debate.result.includes(`(${id})`), `debate default includes ${id}`);
+    assert.ok(!debate.result.includes('(security)'), 'the debate default is not the panel roster');
+
+    const chosen = await app.executeAgentRun({ agentIds: ['reviewer', 'security'], objective: 'Evaluate the storage change', mode: 'panel' });
+    assert.ok(chosen.result.includes('(reviewer)') && chosen.result.includes('(security)'));
+    assert.ok(!chosen.result.includes('(architect)'), 'an explicit selection replaces the default roster');
+  } finally {
+    cleanup();
+  }
+});
+
+test('the synthesizer receives the participant output it is asked to synthesize', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initialize();
+  useDeterministicProcessAgents(app, ['architect', 'reviewer', 'adversary', 'security']);
+
+  try {
+    // The deterministic adapter echoes its own prompt, so the synthesis section
+    // shows exactly what the synthesizer was given.
+    const panel = await app.executeAgentRun({ agentIds: ['architect', 'reviewer'], objective: 'Adopt the new cache', mode: 'panel' });
+    const panelSynthesis = panel.result.split('### Panel Synthesis')[1];
+    assert.ok(panelSynthesis.includes('architect: Objective: Adopt the new cache'), 'panel synthesis sees the architect contribution');
+    assert.ok(panelSynthesis.includes('reviewer: Objective: Adopt the new cache'), 'panel synthesis sees the reviewer contribution');
+
+    const debate = await app.executeAgentRun({ agentIds: ['architect', 'adversary'], objective: 'Adopt the new cache', mode: 'debate' });
+    const finalSynthesis = debate.result.split('### Final Synthesis & Recommendation')[1];
+    assert.ok(finalSynthesis.includes('Independent positions:'), 'debate synthesis carries the round-one positions');
+    assert.ok(finalSynthesis.includes('Critiques and refinements:'), 'debate synthesis carries the round-two critiques');
+    assert.ok(finalSynthesis.includes('Provide your critique and refine your position.'), 'the critiques themselves are present, not just their heading');
+  } finally {
+    cleanup();
+  }
+});

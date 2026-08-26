@@ -96,10 +96,9 @@ const FALLBACK_PROFILES: AgentProfile[] = [
 ];
 
 // The API owns the voice list; this local set covers an unavailable bootstrap request.
-const PANEL_AGENT_IDS = ['architect', 'reviewer', 'adversary'];
-const FALLBACK_VOICES = ['af_bella', 'af_sarah', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'];
 
 const FALLBACK_EDITOR_OPTIONS: AgentEditorOptions = {
+  defaultRosters: {},
   adapters: ['acp', 'process'],
   clis: ['claude', 'codex', 'copilot', 'cline', 'agy'],
   capabilities: ['workspace.read', 'workspace.write', 'git.read', 'shell'],
@@ -471,8 +470,10 @@ export function AgentOrchestrationView() {
   const [agents, setAgents] = useState<AgentProfile[]>(FALLBACK_PROFILES);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [editorOptions, setEditorOptions] = useState<AgentEditorOptions>(FALLBACK_EDITOR_OPTIONS);
-  const [voices, setVoices] = useState<string[]>(FALLBACK_VOICES);
+  const [voices, setVoices] = useState<string[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>('architect');
+  // Empty means the daemon's roster for the chosen mode; a selection replaces it.
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [selectedMode, setSelectedMode] = useState<'solo' | 'panel' | 'debate'>('solo');
   const [objective, setObjective] = useState('');
   const [loading, setLoading] = useState(false);
@@ -484,8 +485,12 @@ export function AgentOrchestrationView() {
   const selectedProfile = agents.find((agent) => agent.id === selectedAgent);
   const selectedCapabilities = selectedMode === 'solo' ? selectedProfile?.capabilities ?? [] : [];
   // Every agent the chosen mode will run, so a privileged one in a panel or debate
-  // is approved the same way a privileged solo run is.
-  const runningAgentIds = selectedMode === 'solo' ? [selectedAgent] : PANEL_AGENT_IDS;
+  // is approved the same way a privileged solo run is. With no selection that is
+  // the roster the daemon publishes for the mode.
+  const defaultRoster = editorOptions.defaultRosters?.[selectedMode] ?? [];
+  const runningAgentIds = selectedMode === 'solo'
+    ? [selectedAgent]
+    : selectedAgentIds.length ? selectedAgentIds : defaultRoster;
   const privilegedAgentIds = runningAgentIds.filter((id) => (agents.find((agent) => agent.id === id)?.capabilities ?? []).some((capability) => capability === 'workspace.write' || capability === 'shell'));
   const needsApproval = privilegedAgentIds.length > 0;
 
@@ -547,8 +552,7 @@ export function AgentOrchestrationView() {
     try {
       const approvals = await Promise.all(wanted.map((id) => api.requestApproval('agent.privileged', id).then((grant) => grant.id)));
       await api.executeAgentRun({
-        agentId: selectedAgent,
-        agentIds: PANEL_AGENT_IDS,
+        ...(selectedMode === 'solo' ? { agentId: selectedAgent } : selectedAgentIds.length ? { agentIds: selectedAgentIds } : {}),
         objective,
         mode: selectedMode,
         requestedCapabilities: selectedCapabilities,
@@ -636,6 +640,30 @@ export function AgentOrchestrationView() {
               </>
             )}
           </div>
+
+          {selectedMode !== 'solo' && (
+            <div className="flex gap-2 items-center flex-wrap text-xs">
+              <label className="form-label mb-0">Participants:</label>
+              {agents.map((a) => {
+                const picked = selectedAgentIds.includes(a.id);
+                return (
+                  <label key={a.id} className={`flex items-center gap-1 ${a.available === false ? 'text-slate-600' : picked ? 'text-cyan-300' : 'text-slate-400'}`}>
+                    <input
+                      type="checkbox"
+                      checked={picked}
+                      disabled={a.available === false}
+                      onChange={() => setSelectedAgentIds((ids) => (picked ? ids.filter((id) => id !== a.id) : [...ids, a.id]))}
+                      className="accent-cyan-500"
+                    />
+                    @{a.id}
+                  </label>
+                );
+              })}
+              {!selectedAgentIds.length && (
+                <span className="text-slate-500">none selected — using {defaultRoster.length ? defaultRoster.map((id) => `@${id}`).join(', ') : 'the daemon default'}</span>
+              )}
+            </div>
+          )}
 
           {needsApproval && (
             <label className="flex items-center gap-2 text-xs text-amber-300">

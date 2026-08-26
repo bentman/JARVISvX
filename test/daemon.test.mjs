@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,6 +28,19 @@ async function readSseEvent(reader) {
   }
 }
 
+// Fixture artifacts stand in for the real models. Their digests are computed
+// from the fixture content so bootstrap validates them exactly as it would a
+// real download, without reaching the network.
+function fixtureManifest() {
+  return voiceModelManifest.map((model) => ({
+    ...model,
+    files: model.files.map(([file]) => {
+      const content = file === 'voices-v1.0.bin' ? 'fixture-voices' : 'fixture-model';
+      return [file, `https://example.invalid/${file}`, Buffer.byteLength(content), createHash('sha256').update(content).digest('hex')];
+    }),
+  }));
+}
+
 test('daemon owns an authenticated loopback API and shares assistant events', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-daemon-'));
   process.env.JARVIS_DATA_DIR = directory;
@@ -39,7 +53,10 @@ test('daemon owns an authenticated loopback API and shares assistant events', as
     }
   }
   const { startDaemon } = await import('../lib/daemon.mjs');
-  const daemon = await startDaemon({ port: 0, token: 'test-token' });
+  const daemon = await startDaemon({ port: 0, token: 'test-token', voiceManifest: fixtureManifest() });
+  // Voice acquisition runs alongside startup, so let it settle before asserting
+  // on the event stream it also publishes to.
+  await daemon.voiceReady;
   try {
     const denied = await fetch(`http://127.0.0.1:${daemon.port}/api/health`);
     assert.equal(denied.status, 401);
@@ -102,7 +119,7 @@ test('resource routes report the right status, and the session bootstrap is loop
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-routes-'));
   process.env.JARVIS_DATA_DIR = directory;
   const { startDaemon } = await import('../lib/daemon.mjs');
-  const daemon = await startDaemon({ port: 0, token: 'route-test-token' });
+  const daemon = await startDaemon({ port: 0, token: 'route-test-token', voiceManifest: fixtureManifest() });
   const base = `http://127.0.0.1:${daemon.port}`;
   const call = (route, options = {}) => fetch(base + route, { ...options, headers: { 'content-type': 'application/json', 'x-jarvis-token': 'route-test-token', ...options.headers } });
 
@@ -145,4 +162,79 @@ test('electron navigation carries no daemon token', async () => {
 
   const client = await fs.readFile(new URL('../src/api.ts', import.meta.url), 'utf8');
   assert.ok(!client.includes("params.get('daemon')"), 'the renderer does not parse token state out of the URL');
+});
+
+// --- Single-instance ownership ---
+
+async function withDataRoot(fn) {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-lock-'));
+  const previous = process.env.JARVIS_DATA_DIR;
+  process.env.JARVIS_DATA_DIR = directory;
+  const { createRuntimePaths } = await import('../lib/runtime-paths.mjs');
+  try {
+    await fn({ directory, paths: createRuntimePaths() });
+  } finally {
+    if (previous === undefined) delete process.env.JARVIS_DATA_DIR; else process.env.JARVIS_DATA_DIR = previous;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
+test('two contenders for one data root produce exactly one owner', async () => {
+  await withDataRoot(async ({ paths }) => {
+    const { startDaemon } = await import('../lib/daemon.mjs');
+    const first = await startDaemon({ port: 0, token: 'owner-token', paths });
+    try {
+      await assert.rejects(startDaemon({ port: 0, token: 'contender-token', paths }), /already running/);
+
+      // The lock names its owner before anyone can read it.
+      const record = JSON.parse(await fs.readFile(paths.lockPath, 'utf8'));
+      assert.equal(record.pid, process.pid);
+      assert.ok(record.instance, 'the lock carries an instance identity');
+      assert.ok(record.createdAt, 'and when it was taken');
+
+      // Every lifecycle state answers the ownership probe as that instance.
+      const status = await fetch(`http://127.0.0.1:${first.port}/daemon/status`, { headers: { 'x-jarvis-token': 'owner-token' } });
+      const body = await status.json();
+      assert.equal(body.pid, record.pid);
+      assert.equal(body.instance, record.instance);
+      assert.ok(['starting', 'ready', 'degraded', 'stopping'].includes(body.status));
+      assert.equal((await fetch(`http://127.0.0.1:${first.port}/daemon/status`)).status, 401, 'the probe is authenticated');
+    } finally {
+      await first.close();
+    }
+    assert.equal(await fs.access(paths.lockPath).then(() => true, () => false), false, 'shutdown releases the lock');
+  });
+});
+
+test('a lock is released only on evidence its owner is gone', async () => {
+  await withDataRoot(async ({ paths }) => {
+    const { startDaemon } = await import('../lib/daemon.mjs');
+
+    // A live process holds its lock even with no discovery to corroborate it:
+    // missing discovery is an absence of evidence, not proof of staleness.
+    await fs.writeFile(paths.lockPath, JSON.stringify({ pid: process.pid, instance: 'someone-else', createdAt: 'n' }));
+    await assert.rejects(startDaemon({ port: 0, token: 't', paths }), /already running/);
+
+    // An unreadable lock record cannot prove its owner is gone either.
+    await fs.writeFile(paths.lockPath, '{ half-writ');
+    await assert.rejects(startDaemon({ port: 0, token: 't', paths }), /already running/);
+
+    // A recorded process that is absent, with nothing answering as it, is stale.
+    await fs.writeFile(paths.lockPath, JSON.stringify({ pid: 0x7fffffff, instance: 'dead', createdAt: 'n' }));
+    const daemon = await startDaemon({ port: 0, token: 't', paths });
+    try {
+      assert.equal(JSON.parse(await fs.readFile(paths.lockPath, 'utf8')).pid, process.pid, 'the stale lock was taken over');
+    } finally {
+      await daemon.close();
+    }
+  });
+});
+
+test('a failed startup leaves no lock behind', async () => {
+  await withDataRoot(async ({ paths }) => {
+    const { startDaemon } = await import('../lib/daemon.mjs');
+    // An unusable port fails after the lock is taken.
+    await assert.rejects(startDaemon({ port: -1, token: 't', paths }));
+    assert.equal(await fs.access(paths.lockPath).then(() => true, () => false), false, 'the lock is released when startup unwinds');
+  });
 });

@@ -5,14 +5,82 @@ type Model = { run: (feeds: Record<string, ort.Tensor>) => Promise<Record<string
 let mel: Model; let embedding: Model; let wake: Model;
 let vad: Model | null = null; let vadState = new Float32Array(2 * 1 * 128); let vadContext = new Float32Array(64); let vadReady = false;
 let transcriber: any;
-let audio: number[] = []; let preRoll: number[] = []; let features: Float32Array[] = []; let active = false; let utterance: number[] = []; let silenceFrames = 0; let partialSamples = 0;
-let wakeReady = false; let initialized = false; let processingFrames = false; let pendingFrames: Float32Array[] = [];
+let features: Float32Array[] = []; let active = false; let silenceFrames = 0; let partialSamples = 0;
+let wakeReady = false; let initialized = false; let processingFrames = false;
 let executionProvider = 'wasm'; let benchmarkedWake = false; let listening = true; let mode = 'wake';
 const threshold = 0.5;
 const frameSamples = 1280;
 const vadSamples = 512;
 const preRollSamples = 48_000;
 const wakeCommandPreRollSamples = 24_000;
+const sampleRate = 16_000;
+// Queued audio is capped at one second. Beyond that the oldest frames are the
+// least useful, so they are dropped and counted rather than growing latency.
+const maxQueuedSamples = sampleRate;
+const maxQueuedFrames = Math.ceil(maxQueuedSamples / frameSamples);
+// The wake window is fixed, so it is written in place rather than rebuilt.
+const wakeWindowSamples = 12_600;
+
+/** A fixed-capacity queue of frames; the oldest is discarded when it is full. */
+class FrameQueue {
+  private frames: Float32Array[] = [];
+  dropped = 0;
+  push(frame: Float32Array) {
+    if (this.frames.length >= maxQueuedFrames) { this.frames.shift(); this.dropped += 1; }
+    this.frames.push(frame);
+  }
+  shift() { return this.frames.shift(); }
+  get length() { return this.frames.length; }
+  clear() { this.frames = []; }
+}
+
+/** A ring of samples with a fixed span, written without reallocating. */
+class SampleRing {
+  private buffer: Float32Array;
+  private written = 0;
+  constructor(readonly capacity: number) { this.buffer = new Float32Array(capacity); }
+  write(frame: Float32Array) {
+    const offset = this.written % this.capacity;
+    const head = Math.min(frame.length, this.capacity - offset);
+    this.buffer.set(frame.subarray(0, head), offset);
+    if (head < frame.length) this.buffer.set(frame.subarray(head), 0);
+    this.written += frame.length;
+  }
+  get filled() { return Math.min(this.written, this.capacity); }
+  /** The most recent `count` samples in order. */
+  read(count = this.filled) {
+    const take = Math.min(count, this.filled);
+    const out = new Float32Array(take);
+    const start = (this.written - take) % this.capacity;
+    const head = Math.min(take, this.capacity - start);
+    out.set(this.buffer.subarray(start, start + head), 0);
+    if (head < take) out.set(this.buffer.subarray(0, take - head), head);
+    return out;
+  }
+  clear() { this.written = 0; }
+}
+
+/** Growing capture of one utterance, doubling instead of spreading per frame. */
+class SampleBuffer {
+  private buffer = new Float32Array(sampleRate * 8);
+  length = 0;
+  write(frame: Float32Array) {
+    if (this.length + frame.length > this.buffer.length) {
+      const grown = new Float32Array(Math.max(this.buffer.length * 2, this.length + frame.length));
+      grown.set(this.buffer.subarray(0, this.length));
+      this.buffer = grown;
+    }
+    this.buffer.set(frame, this.length);
+    this.length += frame.length;
+  }
+  read() { return this.buffer.slice(0, this.length); }
+  clear() { this.length = 0; }
+}
+
+const pendingFrames = new FrameQueue();
+const preRoll = new SampleRing(preRollSamples);
+const wakeWindow = new SampleRing(wakeWindowSamples);
+const utterance = new SampleBuffer();
 
 self.onmessage = async ({ data }: MessageEvent) => {
   try {
@@ -20,7 +88,7 @@ self.onmessage = async ({ data }: MessageEvent) => {
     if (data.type === 'listening') { listening = Boolean(data.enabled); if (!listening) resetCapture(); return; }
     if (data.type === 'mode') { mode = data.mode || 'wake'; resetCapture(); active = mode === 'conversation' && listening; return; }
     if (data.type === 'audio') { pendingFrames.push(new Float32Array(data.samples)); void drainFrames().catch((error) => postMessage({ type: 'error', message: error.message || String(error) })); return; }
-    if (data.type === 'reset' || data.type === 'interrupt') { resetCapture(); pendingFrames = []; }
+    if (data.type === 'reset' || data.type === 'interrupt') { resetCapture(); pendingFrames.clear(); }
     if (data.type === 'capture') startCapture(false);
   } catch (error: any) { postMessage({ type: 'error', message: error.message || String(error) }); }
 };
@@ -60,25 +128,31 @@ async function initialize(baseUrl: string) {
 async function drainFrames() {
   if (!initialized || processingFrames) return;
   processingFrames = true;
-  try { while (pendingFrames.length) await processFrame(pendingFrames.shift()!); } finally { processingFrames = false; }
+  try {
+    while (pendingFrames.length) {
+      await processFrame(pendingFrames.shift()!);
+      if (pendingFrames.dropped) { postMessage({ type: 'benchmark', component: 'wake-queue', droppedFrames: pendingFrames.dropped, queuedLatencyMs: Math.round((maxQueuedSamples / sampleRate) * 1000) }); pendingFrames.dropped = 0; }
+    }
+  } finally { processingFrames = false; }
 }
 
 async function processFrame(frame: Float32Array) {
   if (!listening) return;
   const rms = Math.sqrt(frame.reduce((sum, sample) => sum + sample * sample, 0) / frame.length);
-  preRoll.push(...frame); if (preRoll.length > preRollSamples) preRoll = preRoll.slice(-preRollSamples);
+  preRoll.write(frame);
   if (active) {
-    utterance.push(...frame);
+    utterance.write(frame);
     const speechScore = vadReady ? await vadScore(frame) : null;
     const quiet = speechScore == null ? rms < 0.012 : speechScore < 0.35 && rms < 0.018;
     silenceFrames = quiet ? silenceFrames + 1 : 0;
-    if (silenceFrames >= 12 && utterance.length > 8_000) { const samples = new Float32Array(utterance); active = mode === 'conversation'; utterance = []; silenceFrames = 0; partialSamples = 0; if (!(await hasSpeech(samples))) { postMessage({ type: 'transcript', text: '', rawText: '' }); return; } postMessage({ type: 'transcribing', samples: samples.length }); const started = performance.now(); const result = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); postMessage({ type: 'benchmark', component: 'stt', executionProvider: sttProvider, inferenceMs: Math.round(performance.now() - started), samples: samples.length }); postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() }); }
-    else if (utterance.length >= 48000 && utterance.length - partialSamples >= 48000) { partialSamples = utterance.length; const samples = new Float32Array(utterance); if (!(await hasSpeech(samples))) return; const partial = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); const text = cleanTranscript(partial.text); if (text) postMessage({ type: 'partial-transcript', text }); }
+    if (silenceFrames >= 12 && utterance.length > 8_000) { const samples = utterance.read(); active = mode === 'conversation'; utterance.clear(); silenceFrames = 0; partialSamples = 0; if (!(await hasSpeech(samples))) { postMessage({ type: 'transcript', text: '', rawText: '' }); return; } postMessage({ type: 'transcribing', samples: samples.length }); const started = performance.now(); const result = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); postMessage({ type: 'benchmark', component: 'stt', executionProvider: sttProvider, inferenceMs: Math.round(performance.now() - started), samples: samples.length }); postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() }); }
+    else if (utterance.length >= 48000 && utterance.length - partialSamples >= 48000) { partialSamples = utterance.length; const samples = utterance.read(); if (!(await hasSpeech(samples))) return; const partial = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); const text = cleanTranscript(partial.text); if (text) postMessage({ type: 'partial-transcript', text }); }
     return;
   }
   if (mode !== 'wake') return;
-  audio.push(...frame); if (audio.length > 12600) audio = audio.slice(-12600); if (audio.length < 12600) return;
-  const score = await wakeScore(new Float32Array(audio));
+  wakeWindow.write(frame);
+  if (wakeWindow.filled < wakeWindowSamples) return;
+  const score = await wakeScore(wakeWindow.read());
   if (!wakeReady && features.length >= 16) { wakeReady = true; postMessage({ type: 'wake-ready' }); }
   if (!wakeReady) return;
   postMessage({ type: 'wake-score', score });
@@ -87,13 +161,14 @@ async function processFrame(frame: Float32Array) {
 
 
 function resetCapture() {
-  active = false; utterance = []; silenceFrames = 0; partialSamples = 0;
+  active = false; utterance.clear(); silenceFrames = 0; partialSamples = 0;
   resetVad();
 }
 
 function startCapture(includePreRoll: boolean) {
   active = true;
-  utterance = includePreRoll ? preRoll.slice(-wakeCommandPreRollSamples) : [];
+  utterance.clear();
+  if (includePreRoll) utterance.write(preRoll.read(wakeCommandPreRollSamples));
   silenceFrames = 0;
   partialSamples = 0;
   resetVad();

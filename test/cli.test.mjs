@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -14,6 +15,19 @@ import { voiceModelManifest } from '../lib/model-bootstrap.mjs';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cliPath = path.join(repoRoot, 'bin', 'jarvis.mjs');
 
+// Fixture artifacts stand in for the real models. Their digests are computed
+// from the fixture content so bootstrap validates them exactly as it would a
+// real download, without reaching the network.
+function fixtureManifest() {
+  return voiceModelManifest.map((model) => ({
+    ...model,
+    files: model.files.map(([file]) => {
+      const content = file === 'voices-v1.0.bin' ? 'fixture-voices' : 'fixture-model';
+      return [file, `https://example.invalid/${file}`, Buffer.byteLength(content), createHash('sha256').update(content).digest('hex')];
+    }),
+  }));
+}
+
 async function withDaemon(fn) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-cli-'));
   const modelDir = path.join(directory, 'models');
@@ -27,7 +41,7 @@ async function withDaemon(fn) {
     }
   }
   const { startDaemon } = await import('../lib/daemon.mjs');
-  const daemon = await startDaemon({ port: 0, token: 'cli-test-token' });
+  const daemon = await startDaemon({ port: 0, token: 'cli-test-token', voiceManifest: fixtureManifest() });
   try {
     await fn({ directory, daemon, env: { ...process.env, JARVIS_DATA_DIR: directory, JARVIS_MODEL_DIR: modelDir } });
   } finally {
@@ -190,8 +204,9 @@ test('jarvis ask reads a piped message from stdin and surfaces the real daemon e
     assert.match(noArgsNoStdin.stderr, /Usage: jarvis ask/);
 
     const piped = await cli(['ask', '--json'], { env, stdin: 'hello from a pipe' });
-    assert.equal(piped.code, 0);
-    // A provider error proves piped stdin reached the chat pipeline.
+    // A provider error proves piped stdin reached the chat pipeline, and a turn
+    // that ends in an error is reported to the shell as a failure.
+    assert.notEqual(piped.code, 0);
     assert.ok(!piped.stderr.includes('Usage: jarvis ask'));
     const events = piped.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
     assert.ok(events.some((event) => event.type === 'error'));
@@ -212,5 +227,26 @@ test('automatic selection omits providerId from the request; a pinned provider s
 
     await cli(['ask', 'hello', '--provider', 'pinned-id'], { env });
     assert.equal(received[1], 'pinned-id', 'a pinned provider is serialized');
+  });
+});
+
+test('a failed turn exits nonzero in both output modes, and a successful command exits zero', async () => {
+  await withDaemon(async ({ env }) => {
+    // No provider is configured, so the turn cannot complete.
+    const plain = await cli(['ask', 'hello'], { env });
+    assert.notEqual(plain.code, 0, 'a turn that never ran must not report success');
+
+    const json = await cli(['ask', 'hello', '--json'], { env });
+    assert.notEqual(json.code, 0, 'the JSON mode reports the same result');
+    assert.ok(json.stdout.includes('"type":"error"'), 'and still emits the terminal event');
+
+    // An unknown agent id is a failed request, not a silent success.
+    const unknown = await cli(['agent', 'run', 'not-an-agent', 'do something'], { env });
+    assert.notEqual(unknown.code, 0);
+
+    // Reads that succeed keep a zero status.
+    assert.equal((await cli(['doctor'], { env })).code, 0);
+    assert.equal((await cli(['agents'], { env })).code, 0);
+    assert.equal((await cli(['settings', 'get'], { env })).code, 0);
   });
 });

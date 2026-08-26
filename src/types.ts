@@ -74,6 +74,7 @@ export interface AgentProfile {
 
 // Editor options are the backend's accepted selector values and length limits.
 export interface AgentEditorOptions {
+  defaultRosters: Record<string, string[]>;
   adapters: string[];
   clis: string[];
   capabilities: string[];

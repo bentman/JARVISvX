@@ -1,6 +1,7 @@
 import { Activity, Bot, Brain, ChevronRight, CircleStop, Cloud, Cpu, Database, FolderPlus, MessageSquarePlus, Mic, Send, Settings2, Trash2, Users, X, Zap } from 'lucide-react';
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
+import { useDaemonEvents } from './events';
 import type { ApprovalAction } from './api';
 import { VoiceHost } from './voice/VoiceHost';
 import { McpSkillsView } from './components/McpSkillsView';
@@ -60,19 +61,11 @@ export default function App() {
     catch (err: any) { setError(err.message); }
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        for await (const event of api.events(controller.signal)) {
-          if (!['session', 'turn-complete', 'cancelled', 'error'].includes(event.type)) continue;
-          await refresh();
-          if (event.conversationId && event.conversationId === current?.id) await selectConversation(event.conversationId);
-        }
-      } catch (err: any) { if (!controller.signal.aborted) setError(`Assistant event stream: ${err.message}`); }
-    })();
-    return () => controller.abort();
-  }, [current?.id, refresh]);
+  useDaemonEvents(async (event) => {
+    if (!['session', 'turn-complete', 'cancelled', 'error'].includes(event.type)) return;
+    await refresh();
+    if (event.conversationId && event.conversationId === current?.id) await selectConversation(event.conversationId);
+  }, (message) => setError(`Assistant event stream: ${message}`));
   const resolvedProvider = providerChoice ?? effectiveProvider;
   const activeProviderInfo = providers.find((provider) => provider.id === resolvedProvider);
   const availableModels = activeProviderInfo?.models || [];

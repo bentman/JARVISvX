@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { subscribeEvents } from '../events';
+import { publishAudioLevel } from './audio-level';
 import { VoiceControls } from '../VoiceControls';
 import audioProcessorSource from './audio-processor.ts?raw';
 
@@ -139,8 +141,9 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
         };
         node.port.onmessage = ({ data }) => {
           const samples = new Float32Array(data);
+          const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+          publishAudioLevel(rms);
           if (playing.current) {
-            const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
             bargeFrames.current = rms >= 0.045 ? bargeFrames.current + 1 : 0;
             if (bargeFrames.current >= 8) { bargeFrames.current = 0; const stoppedTurn = stopPlayback('Speech output interrupted by microphone input.', false); worker.current?.postMessage({ type: 'capture' }); if (stoppedTurn.conversationId) void api.cancel(stoppedTurn.conversationId, stoppedTurn.turnId || undefined); interruptRef.current(); stateRef.current('capturing'); }
           } else bargeFrames.current = 0;
@@ -160,19 +163,14 @@ export function VoiceHost({ onTranscript, onState, onInterrupt }: VoiceHostProps
         };
         window.addEventListener('jarvis:speak', handleSpeak);
         const removeTtsProgress = window.jarvisDesktop?.onTtsProgress?.((event) => { if (event?.message && voiceTurnActive.current) stateRef.current('speaking', event.message); });
-        const eventController = new AbortController();
-        void (async () => {
-          try {
-            for await (const event of api.events(eventController.signal)) {
-              if (event.type === 'voice-state') { if (typeof event.voice === 'string') { stopPlayback('Voice changed; speech output reset.'); voice.current = event.voice; } if (typeof event.mode === 'string') { mode.current = event.mode; stopPlayback('Voice mode changed; input loop reset.'); worker.current?.postMessage({ type: 'mode', mode: mode.current }); } if (typeof event.enabled === 'boolean') { enabled.current = event.enabled; if (!enabled.current) stopPlayback('Voice muted.'); worker.current?.postMessage({ type: 'listening', enabled: workerListening() }); if (enabled.current) resumeVoiceInput('Voice unmuted.'); } continue; }
-              if (!enabled.current) continue;
-              if (event.type === 'token') continue;
-              if (event.type === 'turn-complete') continue;
+        const stopEvents = subscribeEvents((event) => {
+              if (event.type === 'voice-state') { if (typeof event.voice === 'string') { stopPlayback('Voice changed; speech output reset.'); voice.current = event.voice; } if (typeof event.mode === 'string') { mode.current = event.mode; stopPlayback('Voice mode changed; input loop reset.'); worker.current?.postMessage({ type: 'mode', mode: mode.current }); } if (typeof event.enabled === 'boolean') { enabled.current = event.enabled; if (!enabled.current) stopPlayback('Voice muted.'); worker.current?.postMessage({ type: 'listening', enabled: workerListening() }); if (enabled.current) resumeVoiceInput('Voice unmuted.'); } return; }
+              if (!enabled.current) return;
+              if (event.type === 'token') return;
+              if (event.type === 'turn-complete') return;
               if ((event.type === 'cancelled' || event.type === 'error') && (!event.conversationId || event.conversationId === speakingConversation.current) && (!event.turnId || event.turnId === speakingTurn.current)) { stopPlayback(event.type === 'cancelled' ? 'Assistant turn cancelled.' : `Assistant turn error: ${event.message || 'Unknown error.'}`); worker.current?.postMessage({ type: 'interrupt' }); }
-            }
-          } catch (error: any) { if (!eventController.signal.aborted) stateRef.current('unavailable', `Voice event stream ended: ${error.message}`); }
-        })();
-        return () => { clearReturnTimer(); eventController.abort(); removeTtsProgress?.(); window.removeEventListener('jarvis:speak', handleSpeak); };
+        }, (message) => stateRef.current('unavailable', `Voice event stream ended: ${message}`));
+        return () => { clearReturnTimer(); stopEvents(); removeTtsProgress?.(); window.removeEventListener('jarvis:speak', handleSpeak); };
       } catch (error: any) { if (!stopped) stateRef.current('unavailable', error.message); }
     };
     let removeRuntime: (() => void) | undefined;

@@ -50,13 +50,13 @@ test('voice runtime keeps daemon status available when model bootstrap fails', a
   assert.equal(events.at(-1).state, 'bootstrap');
 });
 
-test('voice mode changes are runtime-only and published for the audio host', () => {
+test('voice mode changes are persisted and published for the audio host', () => {
   const settings = new Map(); const events = [];
   const runtime = new VoiceRuntime({ database: { setting: (key, fallback) => settings.has(key) ? settings.get(key) : fallback, setSetting: (key, value) => settings.set(key, value) }, publish: (event) => events.push(event) });
   runtime.setMode('wake');
   runtime.setMode('ptt');
   assert.equal(runtime.mode, 'ptt');
-  assert.equal(settings.has('voice.mode'), false);
+  assert.equal(settings.get('voice.mode'), 'ptt');
   assert.deepEqual(events.at(-1), { type: 'voice-state', state: 'bootstrap', mode: 'ptt', message: runtime.message('bootstrap') });
   assert.throws(() => runtime.setMode('always-on'), /Unsupported local voice mode/);
 });

@@ -17,17 +17,20 @@ if (command === 'help' || command === '--help' || command === '-h') { printHelp(
 
 const client = await DaemonClient.connect();
 
-if (command === 'doctor') { console.log(JSON.stringify(await client.diagnostics(), null, 2)); process.exitCode = 0; }
-else if (command === 'daemon') { console.log(JSON.stringify(await client.health(), null, 2)); process.exitCode = 0; }
-else if (command === 'ask') { await ask(args); process.exitCode = 0; }
-else if (command === 'agent' || command === 'agents') { await agentCommand(command === 'agents' ? ['list', ...args] : args); process.exitCode = 0; }
-else if (command === 'mcp') { await mcpCommand(args); process.exitCode = 0; }
-else if (command === 'skills') { await skillsCommand(args); process.exitCode = 0; }
-else if (command === 'settings') { await settingsCommand(args); process.exitCode = 0; }
-else if (command === 'workspace') { await workspace(args); process.exitCode = 0; }
+// A command reports success only when the operation it ran completed. Each
+// handler returns nothing on success or throws; a failed turn or run sets the
+// exit status itself.
+if (command === 'doctor') { console.log(JSON.stringify(await client.diagnostics(), null, 2)); }
+else if (command === 'daemon') { console.log(JSON.stringify(await client.health(), null, 2)); }
+else if (command === 'ask') { await ask(args); }
+else if (command === 'agent' || command === 'agents') { await agentCommand(command === 'agents' ? ['list', ...args] : args); }
+else if (command === 'mcp') { await mcpCommand(args); }
+else if (command === 'skills') { await skillsCommand(args); }
+else if (command === 'settings') { await settingsCommand(args); }
+else if (command === 'workspace') { await workspace(args); }
 else if (command === 'serve') { console.log(`Daemon active at ${client.base}`); }
 else if (process.stdout.isTTY) render(React.createElement(Tui, { client }));
-else { await repl(); process.exitCode = 0; }
+else { await repl(); }
 
 // ---- Flag parsing -----------------------------------------------------
 // Supports --flag, --flag=value, and --flag value; `--` remains positional.
@@ -91,12 +94,18 @@ async function ask(rawArgs) {
     values['allow-tools'] && { action: 'capability.mutate', target: 'any' },
   );
   const payload = { content, conversationId, providerId: values.provider, model: values.model, approvals, origin: 'cli' };
+  // A turn that ends in error or cancellation is a failed command, in both
+  // output modes.
+  let failure = null;
   for await (const event of client.chat(payload)) {
+    if (event.type === 'error' || event.type === 'cancelled') failure = event.message || event.type;
     if (values.json) { console.log(JSON.stringify(event)); continue; }
     if (event.type === 'token') process.stdout.write(event.value);
     if (event.type === 'error') console.error(`\nError: ${event.message}`);
+    if (event.type === 'cancelled') console.error(`\nCancelled: ${event.message || 'The turn was cancelled.'}`);
   }
   if (!values.json) process.stdout.write('\n');
+  if (failure) process.exitCode = 1;
 }
 async function agentCommand(list) {
   const [action, ...rest] = list;
@@ -112,6 +121,7 @@ async function agentCommand(list) {
     );
     const run = await client.runAgent({ agentId, objective, mode: 'solo', conversationId: values.conversation, approvals });
     console.log(values.json ? JSON.stringify(run, null, 2) : (run.result || 'Agent run complete.'));
+    if (run.status === 'failed') process.exitCode = 1;
     return;
   }
   if (action === 'panel' || action === 'debate') {
@@ -126,6 +136,7 @@ async function agentCommand(list) {
     );
     const run = await client.runAgent({ agentIds, objective, mode: action, conversationId: values.conversation, approvals });
     console.log(values.json ? JSON.stringify(run, null, 2) : (run.result || 'Agent run complete.'));
+    if (run.status === 'failed') process.exitCode = 1;
     return;
   }
   throw new Error('Usage: jarvis agent <list|run <id> "<objective>"|panel a1 a2 -- "<objective>"|debate a1 a2 -- "<objective>">');

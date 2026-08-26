@@ -63,3 +63,26 @@ test('voice runtime handles partial and final speech transcripts', () => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+
+test('the interaction mode is durable and a recorded transient state is not reported as live', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-vhud-durable-'));
+  const dbPath = path.join(directory, 'jarvis.sqlite');
+
+  const first = new JarvisDatabase(dbPath);
+  const before = new VoiceRuntime({ database: first, publish: () => {} });
+  before.setMode('conversation');
+  // Diagnostic history from the previous process, including a state that only
+  // makes sense while that process was running.
+  before.setState('capturing', 'Mid-utterance when the process ended.');
+  first.close();
+
+  const second = new JarvisDatabase(dbPath);
+  const after = new VoiceRuntime({ database: second, publish: () => {} });
+  const status = await after.status();
+
+  assert.equal(status.mode, 'conversation', 'the selected mode survives a restart');
+  assert.notEqual(status.state, 'capturing', 'a transient state is not restored as the live one');
+
+  second.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});

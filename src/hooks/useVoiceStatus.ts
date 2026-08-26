@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { subscribeEvents } from '../events';
 import { VoiceRuntimeStatus } from '../types';
 
 // Voice-state events are partial updates and merge into the bootstrap snapshot.
@@ -21,23 +22,15 @@ export function useVoiceStatus() {
 
   useEffect(() => {
     void refresh();
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        for await (const event of api.events(controller.signal)) {
-          if (event.type === 'voice-state') {
-            setVoice((prev) => (prev ? { ...prev, ...event } : prev));
-          } else if (event.type === 'bootstrap-progress' && event.status === 'complete') {
-            void refresh();
-          } else if (event.type === 'benchmark') {
-            void refresh();
-          }
-        }
-      } catch (err: any) {
-        if (!controller.signal.aborted) setError(err.message || 'Voice event stream disconnected.');
+    return subscribeEvents((event) => {
+      if (event.type === 'voice-state') {
+        setVoice((prev) => (prev ? { ...prev, ...event } : prev));
+      } else if (event.type === 'bootstrap-progress' && event.status === 'complete') {
+        void refresh();
+      } else if (event.type === 'benchmark') {
+        void refresh();
       }
-    })();
-    return () => controller.abort();
+    }, (message) => setError(message));
   }, []);
 
   return { voice, refresh, error };

@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { useDaemonEvents } from '../events';
+import { currentAudioLevel } from '../voice/audio-level';
 import { useVoiceStatus } from '../hooks/useVoiceStatus';
 import { VoiceOrb } from './VoiceOrb';
 import {
@@ -18,6 +20,17 @@ import { SectionDivider } from './ui/SectionDivider';
 import { StatusBadge } from './ui/StatusBadge';
 
 type SpeechLogEntry = { id: string; at: string; text: string };
+const VOICE_LABELS: Record<string, { name: string; tag: string }> = {
+  bf_isabella: { name: 'Isabella (British Soft)', tag: 'Recommended' },
+  af_sarah: { name: 'Sarah (American Crisp)', tag: 'Popular' },
+  af_bella: { name: 'Bella (American Expressive)', tag: 'Warm' },
+  am_adam: { name: 'Adam (American Deep)', tag: 'Male' },
+  am_michael: { name: 'Michael (American Clear)', tag: 'Male' },
+  bf_emma: { name: 'Emma (British Formal)', tag: 'British' },
+  bm_george: { name: 'George (British Deep)', tag: 'Male' },
+  bm_lewis: { name: 'Lewis (British Clear)', tag: 'Male' },
+};
+
 const MAX_SPEECH_LOG_ENTRIES = 100;
 
 export function VoiceHudView() {
@@ -29,9 +42,6 @@ export function VoiceHudView() {
   const [speechLog, setSpeechLog] = useState<SpeechLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const speechLogEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -46,73 +56,28 @@ export function VoiceHudView() {
   }, [voiceError]);
 
   // The speech log accumulates voice-state transitions and final transcript events.
-  useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        for await (const event of api.events(controller.signal)) {
-          if (event.type === 'voice-state') {
-            const text = event.detail || event.message;
-            if (!text) continue;
-            setSpeechLog((prev) => [...prev, { id: event.id, at: event.at, text }].slice(-MAX_SPEECH_LOG_ENTRIES));
-          } else if (event.type === 'final-transcript') {
-            setSpeechLog((prev) => [...prev, { id: event.id, at: event.at, text: `Heard: "${event.text}"` }].slice(-MAX_SPEECH_LOG_ENTRIES));
-          }
-        }
-      } catch (err: any) {
-        if (!controller.signal.aborted) setError(err.message || 'Speech log event stream disconnected.');
-      }
-    })();
-    return () => controller.abort();
-  }, []);
+  useDaemonEvents((event) => {
+    if (event.type === 'voice-state') {
+      const text = event.detail || event.message;
+      if (!text) return;
+      setSpeechLog((prev) => [...prev, { id: event.id, at: event.at, text }].slice(-MAX_SPEECH_LOG_ENTRIES));
+    } else if (event.type === 'final-transcript') {
+      setSpeechLog((prev) => [...prev, { id: event.id, at: event.at, text: `Heard: "${event.text}"` }].slice(-MAX_SPEECH_LOG_ENTRIES));
+    }
+  }, (message) => setError(message));
 
   useEffect(() => {
     speechLogEndRef.current?.scrollIntoView({ block: 'end' });
   }, [speechLog]);
 
-  // Web Audio Micro-analyzer
+  // The level meter samples the stream VoiceHost already owns.
   useEffect(() => {
-    const initAudioAnalyzer = async () => {
-      try {
-        if (!navigator.mediaDevices?.getUserMedia) return;
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
-        if (!stream) return;
-        streamRef.current = stream;
-
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        const audioCtx = new AudioCtx();
-        audioCtxRef.current = audioCtx;
-
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 32;
-        analyserRef.current = analyser;
-
-        const source = audioCtx.createMediaStreamSource(stream);
-        source.connect(analyser);
-
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-        const tick = () => {
-          if (!analyserRef.current) return;
-          analyserRef.current.getByteFrequencyData(dataArray);
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-          const avg = sum / (dataArray.length * 255);
-          setAudioLevel(avg);
-          animFrameRef.current = requestAnimationFrame(tick);
-        };
-
-        tick();
-      } catch (e) {}
+    const tick = () => {
+      setAudioLevel(currentAudioLevel());
+      animFrameRef.current = requestAnimationFrame(tick);
     };
-
-    initAudioAnalyzer();
-
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') audioCtxRef.current.close();
-    };
+    tick();
+    return () => { if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current); };
   }, []);
 
   const handleVoiceChange = async (voiceId: string) => {
@@ -135,10 +100,14 @@ export function VoiceHudView() {
     }
   };
 
+  // Capture and interrupt are commands to the capture owner; the state shown
+  // afterwards is the one the daemon broadcasts, not one assumed here.
+  const commandVoiceHost = (detail: Record<string, unknown>) => window.dispatchEvent(new CustomEvent('jarvis:speak', { detail }));
+
   const handlePushToTalk = async () => {
     try {
+      commandVoiceHost({ type: 'capture' });
       await api.setVoiceState('capturing');
-      setCurrentState('capturing');
     } catch (err: any) {
       setError(err.message);
     }
@@ -146,23 +115,17 @@ export function VoiceHudView() {
 
   const handleInterrupt = async () => {
     try {
+      commandVoiceHost({ type: 'interrupt' });
       await api.voiceEvent({ type: 'interrupt' });
-      await api.setVoiceState('wake-listening');
-      setCurrentState('interrupted');
-      setTimeout(() => setCurrentState('wake-listening'), 1200);
+      await api.setVoiceState('wake-listening', 'Interrupted from the voice HUD.');
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  const kokoroVoicesList = [
-    { id: 'bf_isabella', name: 'Isabella (British Soft)', tag: 'Recommended' },
-    { id: 'af_sarah', name: 'Sarah (American Crisp)', tag: 'Popular' },
-    { id: 'af_bella', name: 'Bella (American Expressive)', tag: 'Warm' },
-    { id: 'am_adam', name: 'Adam (American Deep)', tag: 'Male' },
-    { id: 'am_michael', name: 'Michael (American Clear)', tag: 'Male' },
-    { id: 'bf_emma', name: 'Emma (British Formal)', tag: 'British' }
-  ];
+  // Which voices exist comes from the runtime; only their presentation is local,
+  // and an unlabelled voice still lists under its own identifier.
+  const kokoroVoicesList = (voiceStatus?.voices || []).map((id) => ({ id, ...(VOICE_LABELS[id] || { name: id, tag: 'Installed' }) }));
 
   return (
     <div className="panel-surface panel-content">

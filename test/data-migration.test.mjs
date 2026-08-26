@@ -196,3 +196,63 @@ test('stored credentials require their effective key material to be present', ()
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('an existing empty destination is published without renaming onto it', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-migrate-empty-'));
+  const source = path.join(base, 'source');
+  const target = path.join(base, 'target');
+  fs.mkdirSync(path.join(source, 'sql-db'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'sql-db', 'jarvis.sqlite'), 'database');
+  fs.writeFileSync(path.join(source, 'operator.txt'), 'durable');
+  fs.mkdirSync(target, { recursive: true });
+
+  const result = await migrateDataDirectory(source, target);
+  assert.equal(result.action, 'moved');
+  assert.equal(fs.readFileSync(path.join(target, 'sql-db', 'jarvis.sqlite'), 'utf8'), 'database');
+  assert.equal(fs.readFileSync(path.join(target, 'operator.txt'), 'utf8'), 'durable');
+  assert.equal(fs.existsSync(source), false);
+  assert.deepEqual(fs.readdirSync(base).filter((entry) => entry.includes('staging')), [], 'staging is not left behind');
+
+  // Re-running converges rather than failing or duplicating.
+  const again = await migrateDataDirectory(source, target);
+  assert.equal(again.action, 'created');
+  assert.equal(fs.readFileSync(path.join(target, 'operator.txt'), 'utf8'), 'durable');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('a failure before publication leaves the source complete and no staging behind', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-migrate-interrupt-'));
+  const source = path.join(base, 'source');
+  const target = path.join(base, 'nested', 'target');
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, 'operator.txt'), 'durable');
+
+  // A destination path that cannot be created fails the publish step.
+  fs.writeFileSync(path.join(base, 'nested'), 'not a directory');
+  await assert.rejects(migrateDataDirectory(source, target));
+  assert.equal(fs.readFileSync(path.join(source, 'operator.txt'), 'utf8'), 'durable', 'the source survives a failed publish');
+  assert.deepEqual(fs.readdirSync(base).filter((entry) => entry.includes('staging')), [], 'and no staging directory is left behind');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('a failure partway through staging keeps the source and discards the partial copy', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-migrate-partial-'));
+  const source = path.join(base, 'source');
+  const target = path.join(base, 'target');
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, 'a-readable.txt'), 'durable');
+  const unreadable = path.join(source, 'b-unreadable.txt');
+  fs.writeFileSync(unreadable, 'secret');
+  fs.chmodSync(unreadable, 0o000);
+
+  try {
+    await assert.rejects(migrateDataDirectory(source, target));
+    assert.equal(fs.readFileSync(path.join(source, 'a-readable.txt'), 'utf8'), 'durable', 'the source is untouched');
+    assert.ok(fs.existsSync(unreadable), 'including the file that could not be copied');
+    assert.equal(fs.existsSync(target), false, 'nothing was published');
+    assert.deepEqual(fs.readdirSync(base).filter((entry) => entry.includes('staging')), [], 'the partial copy is discarded');
+  } finally {
+    fs.chmodSync(unreadable, 0o600);
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
