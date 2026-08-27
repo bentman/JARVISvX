@@ -14,7 +14,6 @@ first time.
 
 - **Desktop GUI, day-to-day operation** → [docs/OperatorsGuide-GUI.md](docs/OperatorsGuide-GUI.md)
 - **`jarvis` CLI, day-to-day operation** → [docs/OperatorsGuide-CLI.md](docs/OperatorsGuide-CLI.md)
-- **Implementation program** → [docs/implementation/README.md](docs/implementation/README.md)
 
 ## Configuration
 

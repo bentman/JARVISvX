@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 import { createJarvisApp } from '../lib/application.mjs';
+import { createRuntimePaths } from '../lib/runtime-paths.mjs';
 import { AgentRegistry, DEFAULT_AGENT_PROFILES } from '../lib/agents/registry.mjs';
 import { PolicyGate } from '../lib/agents/policy.mjs';
 import { createTurnAuthorization } from '../lib/authorization.mjs';
@@ -18,22 +19,9 @@ const approve = (app, ...requests) => app.authorizationFor(requests.map((request
 
 function createTestApp() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-agent-runtime-'));
-  const app = createJarvisApp({ database: new JarvisDatabase(path.join(directory, 'jarvis.sqlite')) });
+  const app = createJarvisApp({ database: new JarvisDatabase(path.join(directory, 'jarvis.sqlite')), paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
   // Agent runs need an approved root to use as their working directory.
   app.db.addRoot(fs.realpathSync(directory));
-  app.voice.bootstrap = {
-    async install(id) {
-      return { id, ready: true };
-    },
-    async status() {
-      return [
-        { id: 'wake.hey-jarvis', ready: true },
-        { id: 'stt.whisper-base-en', ready: true },
-        { id: 'tts.kokoro-v1', ready: true },
-        { id: 'vad.silero-v6', ready: true }
-      ];
-    }
-  };
   return {
     app,
     cleanup() {
@@ -298,7 +286,7 @@ test('ProcessAdapter blocks a cloud-tagged provider without a cloud grant, and p
 
 test('executeAgentRun threads the turn authorization and effective capabilities through to the adapter', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   const agent = app.agentRuntime.registry.get('researcher');
   app.agentRuntime.registry.profiles.set('researcher', { ...agent, adapter: 'process', capabilities: ['workspace.read'] });
   let received;
@@ -323,7 +311,7 @@ test('executeAgentRun threads the turn authorization and effective capabilities 
 
 test('an agent profile pin reaches routing and outranks the configured mode', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   try {
     const local = app.addProvider({ name: 'Local', protocol: 'openai-compat', base_url: 'http://127.0.0.1:1/v1', model: 'local-model', tags: ['local'], priority: 1 });
     const pinned = app.addProvider({ name: 'Pinned', protocol: 'openai-compat', base_url: 'http://127.0.0.1:2/v1', model: 'pinned-model', tags: ['local'], priority: 90 });
@@ -372,7 +360,7 @@ test('AcpAdapter rejects a CLI it cannot map to the requested process mode, befo
 
 test('RunCoordinator executes solo, panel, and debate multi-agent runs', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   useDeterministicProcessAgents(app);
 
   try {
@@ -412,7 +400,7 @@ test('RunCoordinator executes solo, panel, and debate multi-agent runs', async (
 
 test('a run naming an unknown agent fails as a unit before any run record exists', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   useDeterministicProcessAgents(app, ['architect', 'reviewer']);
 
   try {
@@ -443,7 +431,7 @@ test('a run naming an unknown agent fails as a unit before any run record exists
 
 test('RunCoordinator fails runs when an adapter produces no output', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   const agent = app.agentRuntime.registry.get('architect');
   app.agentRuntime.registry.profiles.set('architect', { ...agent, adapter: 'empty', capabilities: ['workspace.read'] });
   app.agentRuntime.adapters.set('empty', {
@@ -467,7 +455,7 @@ test('RunCoordinator fails runs when an adapter produces no output', async () =>
 
 test('RunCoordinator applies policy to panel and debate agents', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   const builder = app.agentRuntime.registry.get('builder');
   app.agentRuntime.registry.profiles.set('builder', { ...builder, adapter: 'process' });
   app.agentRuntime.adapters.set('process', {
@@ -499,7 +487,7 @@ test('RunCoordinator applies policy to panel and debate agents', async () => {
 
 test('AgentBusMcpServer exposes agent tools and guards max delegation depth', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
 
   try {
     const bus = new AgentBusMcpServer({ runtime: app.agentRuntime });
@@ -524,7 +512,7 @@ test('AgentBusMcpServer exposes agent tools and guards max delegation depth', as
 
 test('API endpoints return agent list and execute agent run', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   useDeterministicProcessAgents(app, ['reviewer']);
 
   try {
@@ -585,7 +573,7 @@ test('AcpAdapter.send fails honestly for a one-shot process with no interactive 
 
 test('AgentRuntime.sendToRun delivers to a live run, and fails honestly for unknown, completed, or non-interactive runs', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   try {
     const missing = app.agentRuntime.sendToRun('does-not-exist', 'hi');
     assert.equal(missing.success, false);
@@ -615,7 +603,7 @@ test('AgentRuntime.sendToRun delivers to a live run, and fails honestly for unkn
 
 test('AgentBusMcpServer.agents_send delegates to AgentRuntime.sendToRun instead of always reporting delivered', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   try {
     const bus = new AgentBusMcpServer({ runtime: app.agentRuntime });
     const missing = await bus.executeTool('agents_send', { runId: 'does-not-exist', message: 'hi' });
@@ -628,7 +616,7 @@ test('AgentBusMcpServer.agents_send delegates to AgentRuntime.sendToRun instead 
 
 test('a run with no named agents uses the published roster for its mode, and a named selection replaces it', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   useDeterministicProcessAgents(app, ['architect', 'reviewer', 'adversary', 'security']);
 
   try {
@@ -654,7 +642,7 @@ test('a run with no named agents uses the published roster for its mode, and a n
 
 test('the synthesizer receives the participant output it is asked to synthesize', async () => {
   const { app, cleanup } = createTestApp();
-  await app.initialize();
+  await app.initializeCore();
   useDeterministicProcessAgents(app, ['architect', 'reviewer', 'adversary', 'security']);
 
   try {

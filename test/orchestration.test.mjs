@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
+import { createRuntimePaths } from '../lib/runtime-paths.mjs';
 import { getHardwareProfile, pingLocalEndpoint, routeTurn } from '../lib/orchestrator.mjs';
 
 test('database persists and updates orchestration settings', () => {
@@ -82,8 +83,8 @@ test('pingLocalEndpoint detects OpenAI-compatible and Ollama model endpoints', a
 test('app initialization exposes orchestration methods', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-orch-app-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
 
   const settings = app.orchestrationSettings();
   assert.ok(settings.mode, 'Mode should exist');
@@ -101,7 +102,7 @@ test('app initialization exposes orchestration methods', async () => {
 test('app.settings() folds provider priority, model, and orchestration mode into one object', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-effective-settings-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
 
   // Two providers at different priorities — the lower number wins. Priority 1
   // is deliberately lower than the DB's always-seeded default llama.cpp entry
@@ -127,7 +128,7 @@ test('app.settings() folds provider priority, model, and orchestration mode into
 test('orchestration mode round-trips through settings() after an update', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mode-roundtrip-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
 
   assert.equal(app.settings().mode, 'auto', 'default mode before any update');
   app.updateOrchestrationSettings({ mode: 'local_only' });

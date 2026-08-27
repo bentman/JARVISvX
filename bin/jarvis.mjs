@@ -15,7 +15,18 @@ const [command = 'tui', ...args] = process.argv.slice(2);
 if (command === 'version' || command === '--version' || command === '-v') { await printVersion(); process.exit(0); }
 if (command === 'help' || command === '--help' || command === '-h') { printHelp(); process.exit(0); }
 
-const client = await DaemonClient.connect();
+// The daemon is opened on first use, not before dispatch, so a command that
+// rejects its own arguments never starts or waits for one. Streaming methods
+// keep their async-iterable shape; every other call resolves through the same
+// single connection.
+let connection;
+const connect = async () => (connection ??= await DaemonClient.connect());
+const STREAMING = new Set(['chat', 'events']);
+const client = new Proxy({}, {
+  get: (_target, method) => (STREAMING.has(method)
+    ? async function* (...args) { yield* (await connect())[method](...args); }
+    : (...args) => connect().then((daemon) => daemon[method](...args)))
+});
 
 // A command reports success only when the operation it ran completed. Each
 // handler returns nothing on success or throws; a failed turn or run sets the
@@ -28,7 +39,7 @@ else if (command === 'mcp') { await mcpCommand(args); }
 else if (command === 'skills') { await skillsCommand(args); }
 else if (command === 'settings') { await settingsCommand(args); }
 else if (command === 'workspace') { await workspace(args); }
-else if (command === 'serve') { console.log(`Daemon active at ${client.base}`); }
+else if (command === 'serve') { console.log(`Daemon active at ${(await connect()).base}`); }
 else if (process.stdout.isTTY) render(React.createElement(Tui, { client }));
 else { await repl(); }
 

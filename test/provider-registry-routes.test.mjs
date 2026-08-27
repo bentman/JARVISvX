@@ -7,13 +7,14 @@ import test from 'node:test';
 import express from 'express';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
+import { createRuntimePaths } from '../lib/runtime-paths.mjs';
 import { createApiRouter } from '../lib/api.mjs';
 
 async function startTestServer() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-provider-routes-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const jarvis = createJarvisApp({ database: db });
-  await jarvis.initialize();
+  const jarvis = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await jarvis.initializeCore();
   const app = express();
   app.use(express.json());
   app.use('/api', createApiRouter(jarvis));

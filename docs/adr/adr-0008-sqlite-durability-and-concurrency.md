@@ -64,9 +64,11 @@ under, which is the opposite of what the tests are for.
   treats all three as one unit. The data-directory migration already moves whole
   directories, so it carries them without change.
 - WAL requires shared memory between processes and is unavailable on network
-  file systems. A `JARVIS_DATA_DIR` pointing at a network share cannot use it;
-  SQLite reports the failure when the mode is set, and that path needs its own
-  decision before it is supported.
+  file systems. SQLite reports that by leaving the journal mode unchanged rather
+  than raising, so `JarvisDatabase` reads the mode back and refuses the open with
+  `unsupported_storage` when it is not `wal`. A `JARVIS_DATA_DIR` on a network
+  share is therefore reported with its remedy instead of running at relaxed
+  durability with no log to recover from.
 - Repeated database construction stops being the cost centre of the test suite.
   The suite's duration was tracking database opens rather than test count, and
   that relationship no longer holds.

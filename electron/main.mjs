@@ -23,6 +23,9 @@ let window; let tray; let daemon; let quitting = false;
 
 let ttsWorker; let ttsId = 0; let ttsQueue = Promise.resolve(); const ttsPending = new Map();
 const headlessVoiceHost = process.argv.includes('--jarvis-daemon');
+// Configuration the host cannot work around: attaching to another instance or
+// retrying reaches the same refusal, so these end the run with their message.
+const FATAL_STARTUP_CODES = new Set(['unsupported_storage']);
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) {
   app.quit();
@@ -65,7 +68,18 @@ app.whenReady().then(async () => {
     return response === 1 ? 'overwrite' : 'import';
   };
 
+  // A startup failure the operator has to resolve carries its remedy in the
+  // message, so it is shown and the host exits rather than raised into a stack
+  // trace the desktop never displays.
+  const failStartup = (error) => {
+    if (headlessVoiceHost) console.error(error.message);
+    else dialog.showErrorBox('JARVIS cannot start', error.message);
+    app.quit();
+    process.exit(1);
+  };
+
   try { daemon = await startDaemon({ paths, onMigrationConflict }); } catch (error) {
+    if (FATAL_STARTUP_CODES.has(error.code)) failStartup(error);
     const existing = await daemonDiscovery(paths);
     if (!existing) throw error;
     try { await new DaemonClient(existing).health(); daemon = existing; } catch { throw error; }

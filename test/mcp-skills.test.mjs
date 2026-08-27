@@ -8,6 +8,7 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
+import { createRuntimePaths } from '../lib/runtime-paths.mjs';
 import { createApiRouter } from '../lib/api.mjs';
 import express from 'express';
 
@@ -98,8 +99,8 @@ test('Skills CRUD and toggle operations work cleanly', () => {
 test('app executes real workspace tools and math skill', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-app-tools-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
 
   // Test math skill execution
   const calcRes = await app.executeSkill('/calc', '100 / 4 + 5');
@@ -135,8 +136,8 @@ test('app executes real workspace tools and math skill', async () => {
 test('/search performs a real search across approved workspace roots, not a canned reply', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-search-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-search-root-'));
   await app.addRoot(rootDir);
   fs.writeFileSync(path.join(rootDir, 'notes.txt'), 'first line\nthe secret ingredient is nutmeg\nlast line');
@@ -159,8 +160,8 @@ test('/search performs a real search across approved workspace roots, not a cann
 test('/code asks the active provider to generate real code, not a fixed template', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-code-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
 
   let receivedPrompt = null;
   useProvider(app, {
@@ -186,8 +187,8 @@ test('/code asks the active provider to generate real code, not a fixed template
 test('stdio MCP servers: adding one discovers real tools, and executing a tool runs the real process', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-stdio-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
 
   const server = await app.addMcpServer({ name: 'Fixture Stdio Server', type: 'stdio', endpoint: stdioCommand });
   assert.ok(server.tools.some((t) => t.name === 'echo'), 'the server\'s real declared tools should be discovered, not a placeholder "execute" tool');
@@ -210,8 +211,8 @@ test('stdio MCP servers: adding one discovers real tools, and executing a tool r
 test('adding an SSE MCP server is rejected instead of silently accepted with no working transport', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-sse-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
 
   await assert.rejects(
     app.addMcpServer({ name: 'Unsupported SSE Server', type: 'sse', endpoint: 'http://127.0.0.1:9999/sse' }),
@@ -225,8 +226,8 @@ test('adding an SSE MCP server is rejected instead of silently accepted with no 
 test('executeMcpTool reports a clear failure instead of a fake success for a server type with no execution path', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-unknown-type-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
   // Direct insertion models persisted data whose transport has no execution path.
   const server = db.addMcpServer({ name: 'Unknown Transport', type: 'carrier-pigeon', endpoint: 'pigeon://loft', tools: [{ name: 'send_message', description: 'x' }] });
 
@@ -283,7 +284,7 @@ test('an HTTP MCP call carries a request id and surfaces protocol failures as fa
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mcp-http-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
   try {
-    const app = createJarvisApp({ database: db });
+    const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
 
     let seenId;
     await withHttpMcp((body, res) => {
@@ -318,7 +319,7 @@ test('a probe records the health it measured, and registration alone records non
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mcp-probe-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
   try {
-    const app = createJarvisApp({ database: db });
+    const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
 
     await withHttpMcp((body, res) => rpc(res, { jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05' } }), async (endpoint) => {
       const registered = db.addMcpServer({ name: 'HTTP MCP', type: 'http', endpoint, tools: [] });

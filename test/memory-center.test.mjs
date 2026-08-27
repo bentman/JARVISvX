@@ -6,6 +6,7 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
+import { createRuntimePaths } from '../lib/runtime-paths.mjs';
 import { extractMemoryFactsByRegex, selectMemories } from '../lib/memory-engine.mjs';
 
 test('database seeds default long-term memories', () => {
@@ -90,8 +91,8 @@ test('extractMemoryFactsByRegex extracts long-term memories from conversation tu
 test('app initialization exposes memory methods and formats context', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mem-app-'));
   const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
-  const app = createJarvisApp({ database: db });
-  await app.initialize();
+  const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+  await app.initializeCore();
 
   const items = app.memories();
   assert.ok(items.length >= 4);

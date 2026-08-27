@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { voiceModelManifest } from '../lib/model-bootstrap.mjs';
 
@@ -28,11 +28,22 @@ function fixtureManifest() {
   }));
 }
 
+// One daemon serves every command test. Starting one per test cost more than
+// the commands under test, and nothing here needs a private daemon: the tests
+// that mutate shared state restore it.
+// A data root no daemon owns: a command that needs one would wait for it.
+const noDaemonEnv = (name) => ({ ...process.env, JARVIS_DATA_DIR: path.join(os.tmpdir(), name) });
+
+let shared;
 async function withDaemon(fn) {
+  shared ??= await startSharedDaemon();
+  return fn(shared);
+}
+after(async () => { await shared?.close(); });
+
+async function startSharedDaemon() {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-cli-'));
   const modelDir = path.join(directory, 'models');
-  process.env.JARVIS_DATA_DIR = directory;
-  process.env.JARVIS_MODEL_DIR = modelDir;
   for (const model of voiceModelManifest) {
     for (const [file] of model.files) {
       const target = path.join(modelDir, model.directory, file);
@@ -53,14 +64,12 @@ async function withDaemon(fn) {
   // developer has installed. Clearing them makes the state the tests describe
   // the state they actually run against.
   for (const provider of daemon.jarvis.listProviders()) daemon.jarvis.deleteProvider(provider.id);
-  try {
-    await fn({ directory, daemon, env: { ...process.env, JARVIS_DATA_DIR: directory, JARVIS_MODEL_DIR: modelDir } });
-  } finally {
-    await daemon.close();
-    await fs.rm(directory, { recursive: true, force: true });
-    delete process.env.JARVIS_DATA_DIR;
-    delete process.env.JARVIS_MODEL_DIR;
-  }
+  return {
+    directory,
+    daemon,
+    env: { ...process.env, JARVIS_DATA_DIR: directory, JARVIS_MODEL_DIR: modelDir },
+    async close() { await daemon.close(); await fs.rm(directory, { recursive: true, force: true }); },
+  };
 }
 
 // Spawns the CLI as a child process. `stdin` controls how stdin is wired:
@@ -112,15 +121,16 @@ test('jarvis agent list prints the real built-in agent roster', async () => {
 });
 
 test('jarvis agent run/panel/debate validate their arguments before touching the daemon', async () => {
-  await withDaemon(async ({ env }) => {
-    const missingObjective = await cli(['agent', 'run', 'architect'], { env });
-    assert.notEqual(missingObjective.code, 0);
-    assert.match(missingObjective.stderr, /Usage: jarvis agent run/);
+  // No daemon is started, and the data root names one that does not exist:
+  // reaching for a daemon at all would hang instead of printing the usage line.
+  const env = noDaemonEnv('jarvis-cli-agent-args');
+  const missingObjective = await cli(['agent', 'run', 'architect'], { env });
+  assert.notEqual(missingObjective.code, 0);
+  assert.match(missingObjective.stderr, /Usage: jarvis agent run/);
 
-    const missingSeparator = await cli(['agent', 'panel', 'architect', 'reviewer'], { env });
-    assert.notEqual(missingSeparator.code, 0);
-    assert.match(missingSeparator.stderr, /Usage: jarvis agent panel/);
-  });
+  const missingSeparator = await cli(['agent', 'panel', 'architect', 'reviewer'], { env });
+  assert.notEqual(missingSeparator.code, 0);
+  assert.match(missingSeparator.stderr, /Usage: jarvis agent panel/);
 });
 
 test('jarvis mcp add/list/ping/remove round-trips through the real MCP server registry', async () => {
@@ -154,7 +164,7 @@ test('jarvis mcp add/list/ping/remove round-trips through the real MCP server re
 });
 
 test('jarvis skills list/toggle/export round-trip through the real skills store', async () => {
-  await withDaemon(async ({ env, directory }) => {
+  await withDaemon(async ({ env, directory, daemon }) => {
     const list = await cli(['skills', 'list'], { env });
     assert.equal(list.code, 0);
     assert.ok(list.stdout.length > 0, 'expected the seeded default skills to be listed');
@@ -164,7 +174,7 @@ test('jarvis skills list/toggle/export round-trip through the real skills store'
     // Resolve the id behind that slash command via the daemon directly (the
     // CLI's list output only prints the command, not the id, by design).
     const { DaemonClient } = await import('../lib/daemon-client.mjs');
-    const client = await DaemonClient.connect();
+    const client = new DaemonClient({ port: daemon.port, token: daemon.token });
     const skills = await client.skills();
     const target = skills.find((s) => s.slashCommand === firstCommand);
     assert.ok(target, `expected to find skill for ${firstCommand}`);
@@ -182,12 +192,10 @@ test('jarvis skills list/toggle/export round-trip through the real skills store'
   });
 });
 
-test('jarvis skills import requires a source argument (network path already covered by skills-source.test.mjs)', async () => {
-  await withDaemon(async ({ env }) => {
-    const result = await cli(['skills', 'import'], { env });
-    assert.notEqual(result.code, 0);
-    assert.match(result.stderr, /Usage: jarvis skills import/);
-  });
+test('jarvis skills import requires a source argument, without opening a daemon', async () => {
+  const result = await cli(['skills', 'import'], { env: noDaemonEnv('jarvis-cli-skills-args') });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Usage: jarvis skills import/);
 });
 
 test('jarvis settings get/mode reads and updates the real consolidated settings', async () => {
@@ -233,11 +241,15 @@ test('automatic selection omits providerId from the request; a pinned provider s
       yield* chat(options);
     };
 
-    await cli(['ask', 'hello'], { env });
-    assert.equal(received[0], '<absent>', 'automatic sends no providerId');
+    try {
+      await cli(['ask', 'hello'], { env });
+      assert.equal(received[0], '<absent>', 'automatic sends no providerId');
 
-    await cli(['ask', 'hello', '--provider', 'pinned-id'], { env });
-    assert.equal(received[1], 'pinned-id', 'a pinned provider is serialized');
+      await cli(['ask', 'hello', '--provider', 'pinned-id'], { env });
+      assert.equal(received[1], 'pinned-id', 'a pinned provider is serialized');
+    } finally {
+      daemon.jarvis.chat = chat;
+    }
   });
 });
 

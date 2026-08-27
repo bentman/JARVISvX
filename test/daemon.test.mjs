@@ -183,7 +183,7 @@ async function withDataRoot(fn) {
 test('two contenders for one data root produce exactly one owner', async () => {
   await withDataRoot(async ({ paths }) => {
     const { startDaemon } = await import('../lib/daemon.mjs');
-    const first = await startDaemon({ port: 0, token: 'owner-token', paths });
+    const first = await startDaemon({ port: 0, token: 'owner-token', paths, voiceManifest: fixtureManifest() });
     try {
       await assert.rejects(startDaemon({ port: 0, token: 'contender-token', paths }), /already running/);
 
@@ -222,7 +222,7 @@ test('a lock is released only on evidence its owner is gone', async () => {
 
     // A recorded process that is absent, with nothing answering as it, is stale.
     await fs.writeFile(paths.lockPath, JSON.stringify({ pid: 0x7fffffff, instance: 'dead', createdAt: 'n' }));
-    const daemon = await startDaemon({ port: 0, token: 't', paths });
+    const daemon = await startDaemon({ port: 0, token: 't', paths, voiceManifest: fixtureManifest() });
     try {
       assert.equal(JSON.parse(await fs.readFile(paths.lockPath, 'utf8')).pid, process.pid, 'the stale lock was taken over');
     } finally {
