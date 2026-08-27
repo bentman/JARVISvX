@@ -22,6 +22,11 @@ if (command === 'help' || command === '--help' || command === '-h') { printHelp(
 let connection;
 const connect = async () => (connection ??= await DaemonClient.connect());
 const STREAMING = new Set(['chat', 'events']);
+// The interactive surfaces draw only once a daemon answers: a session that
+// renders and then fails every request reads as working when it is not.
+const connectOrExit = async () => {
+  try { return await connect(); } catch (error) { console.error(error.message); process.exit(1); }
+};
 const client = new Proxy({}, {
   get: (_target, method) => (STREAMING.has(method)
     ? async function* (...args) { yield* (await connect())[method](...args); }
@@ -40,8 +45,8 @@ else if (command === 'skills') { await skillsCommand(args); }
 else if (command === 'settings') { await settingsCommand(args); }
 else if (command === 'workspace') { await workspace(args); }
 else if (command === 'serve') { console.log(`Daemon active at ${(await connect()).base}`); }
-else if (process.stdout.isTTY) render(React.createElement(Tui, { client }));
-else { await repl(); }
+else if (process.stdout.isTTY) render(React.createElement(Tui, { client: await connectOrExit() }));
+else { await connectOrExit(); await repl(); }
 
 // ---- Flag parsing -----------------------------------------------------
 // Supports --flag, --flag=value, and --flag value; `--` remains positional.

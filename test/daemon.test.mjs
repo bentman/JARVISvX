@@ -207,6 +207,25 @@ test('two contenders for one data root produce exactly one owner', async () => {
   });
 });
 
+test('a client reaches a running daemon through its discovery record', async () => {
+  await withDataRoot(async ({ paths }) => {
+    const { startDaemon } = await import('../lib/daemon.mjs');
+    const { DaemonClient } = await import('../lib/daemon-client.mjs');
+    const daemon = await startDaemon({ port: 0, token: 'client-token', paths, voiceManifest: fixtureManifest() });
+    try {
+      // start: false, so this attaches to the running daemon or fails; it never
+      // masks a broken discovery path by spawning a second one.
+      const client = await DaemonClient.connect({ paths, start: false });
+      assert.equal(client.discovery.port, daemon.port, 'the client reads the port the daemon published');
+      assert.equal(client.discovery.token, daemon.token);
+      assert.equal((await client.health()).status, 'ok', 'and speaks to it with the token it was given');
+    } finally {
+      await daemon.close();
+    }
+    await assert.rejects(DaemonClient.connect({ paths, start: false }), /not running/, 'a closed daemon leaves nothing to attach to');
+  });
+});
+
 test('a lock is released only on evidence its owner is gone', async () => {
   await withDataRoot(async ({ paths }) => {
     const { startDaemon } = await import('../lib/daemon.mjs');
