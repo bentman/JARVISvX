@@ -23,6 +23,33 @@ test('database persists settings, conversations, and messages', () => {
 });
 
 
+test('the database opens under write-ahead logging, and relaxed sync is reapplied on every open', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-db-wal-'));
+  const dbPath = path.join(directory, 'jarvis.sqlite');
+  try {
+    const db = new JarvisDatabase(dbPath);
+    assert.equal(db.db.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
+    assert.equal(db.db.prepare('PRAGMA synchronous').get().synchronous, 1);
+    db.close();
+
+    // journal_mode persists with the file but synchronous does not, so a reopen
+    // that trusted the file would silently run at the FULL default again.
+    const reopened = new JarvisDatabase(dbPath);
+    assert.equal(reopened.db.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
+    assert.equal(reopened.db.prepare('PRAGMA synchronous').get().synchronous, 1,
+      'synchronous is a connection property and must be set again on every open');
+    reopened.close();
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a database that cannot use write-ahead logging is refused rather than opened with relaxed durability', () => {
+  // An in-memory database reports journal_mode=memory, which is the same refusal
+  // a network file system produces without needing a share to reach.
+  assert.throws(() => new JarvisDatabase(':memory:'), (error) => error.code === 'unsupported_storage');
+});
+
 test('provider credentials round-trip against key material that belongs to the database', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-db-key-'));
   const originalSalt = process.env.JARVIS_KEY_SALT;

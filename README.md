@@ -39,7 +39,7 @@ interruption leaves one complete copy and re-running converges.
 | `models/wake` | Wake-word ONNX bundle | `JARVIS_MODEL_DIR` |
 | `models/stt` | Whisper STT bundle | `JARVIS_MODEL_DIR` |
 | `models/tts` | Kokoro TTS bundle | `JARVIS_MODEL_DIR` |
-| `data/sql-db/jarvis.sqlite` | SQLite application database | `JARVIS_DATA_DIR` |
+| `data/sql-db/jarvis.sqlite` | SQLite application database, joined by `jarvis.sqlite-wal` and `jarvis.sqlite-shm` while a connection is open | `JARVIS_DATA_DIR` |
 | `data/daemon.lock` | Single-instance ownership lock while the daemon runs; records the owner's PID, instance id, and when it was taken | `JARVIS_DATA_DIR` |
 | `data/daemon.json` | Loopback port, process identity, and client token discovery while the daemon runs | `JARVIS_DATA_DIR` |
 | `data/provider.key` | Provider-credential key material, generated on first stored credential when `JARVIS_KEY_SALT` is empty; preserve it with the database | `JARVIS_DATA_DIR` |
@@ -54,6 +54,13 @@ The lock and discovery files exist only while the daemon is running; a clean
 shutdown removes both. A contender releases an existing lock only on evidence
 its owner is gone — the recorded process is absent **and** no instance answers
 the ownership probe as that owner.
+
+The database runs under write-ahead logging, so its `-wal` and `-shm` siblings
+accompany it while a connection is open and a clean close checkpoints and removes
+them. The three files are one unit: anything that moves, copies, or backs up the
+database takes all three. Write-ahead logging needs shared memory between
+processes, which a network file system cannot provide — a `JARVIS_DATA_DIR` on a
+share is refused at startup rather than run with reduced durability.
 
 No data is written to `%APPDATA%` or a home-directory folder — this holds regardless of
 the working directory `jarvis` is launched from, since defaults are anchored to the
