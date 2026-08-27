@@ -18,7 +18,7 @@ JARVIS is built for flexibility, privacy, and performance across diverse environ
     *   **Local Execution:** Uses local LLMs (hosted via llama.app) for primary tasks.
     *   **Hardware Awareness:** Automatically detects system specs to configure the optimal local model for peak performance.
     *   **Cloud Escalation:** Ability to escalate to web-based LLMs via API or OAuth upon user request.
-*   **Memory & Storage:** Features a remote memory system that is fully configurable via any cloud storage provider or network file share.
+*   **Memory & Storage:** Features a remote memory system that is fully configurable via any cloud storage provider.
 *   **Cross-Platform Compatibility:** Designed to run on multiple hardware device types and operating systems.
 
 ### Capabilities & Extensibility
