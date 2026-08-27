@@ -8,8 +8,13 @@ three places, none of which any test exercises: a tool-using turn returns nothin
 records nothing, a multi-agent run cannot complete inside its own HTTP request, and
 workspace search spends its budget on the application's own cache directory.
 
-Each item below names the file, the evidence, and what "fixed" looks like. They are
-ordered so the cheapest work that restores a usable turn comes first.
+Every item here is one defect: the system states something it does not do. Tool results
+are reported and not stored. A debate reports failure after completing. `.agentignore`
+declares what search skips and is never read. A truncated search presents itself as
+complete. A profile declares read-only capabilities and its run writes files.
+
+Each item below names the file, the evidence, and what "fixed" looks like. They are ordered
+so the cheapest work comes first; order is sequencing, not priority.
 
 ---
 
@@ -49,6 +54,10 @@ final message are both appended. Unverified.
 process is allowed 300s (`lib/agents/adapters/acp.mjs:182`), so a client cannot outlast even
 one slow participant, and a debate runs several in sequence. The run record and the SSE
 stream the client already subscribes to carry everything needed to follow it.
+
+This discards completed work, not just slow work. A three-participant debate whose client
+reported `fetch failed` had in fact run to completion, each participant finishing minutes
+apart; the result was written to the run record and never reached the caller.
 Fixed: `/debate` with two agents completes and reports.
 
 **Surface `error.cause` where requests fail.** The TUI catch sites render `error.message`
@@ -59,6 +68,20 @@ what actually happened.
 **Give agent runs a surface.** `GET /api/runs` exists and nothing calls it: no CLI
 subcommand, no slash command, no desktop panel. Fixed: a completed or failed run can be read
 back without a raw HTTP request.
+
+## Agent process authority
+
+**Reconcile declared capabilities with the authority a spawned CLI actually has.**
+`architect` and `reviewer` declare `capabilities: ['workspace.read', 'git.read']`
+(`lib/agents/registry.mjs`), which maps to `--permission-mode plan` for `claude` and
+`-s read-only` for `codex`. A debate run under those profiles created three files in a
+`plans/` directory that did not previously exist. Either the capability-to-mode mapping is
+not reaching the spawned process, or these CLIs write planning artifacts regardless of the
+sandbox mode they are given. Establish which, in that order: the first is a defect in the
+boundary this project treats as authoritative, the second is a property of the tools that
+the capability model has to account for rather than assume away.
+Fixed: a read-only agent run leaves the workspace unchanged, or the profile declares the
+authority the run actually exercises.
 
 ## Workspace search
 
