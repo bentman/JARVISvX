@@ -5,14 +5,15 @@ type Model = { run: (feeds: Record<string, ort.Tensor>) => Promise<Record<string
 let mel: Model; let embedding: Model; let wake: Model;
 let vad: Model | null = null; let vadState = new Float32Array(2 * 1 * 128); let vadContext = new Float32Array(64); let vadReady = false;
 let transcriber: any;
-let features: Float32Array[] = []; let active = false; let silenceFrames = 0; let partialSamples = 0;
+let transcriberPromise: Promise<any> | null = null;
+let features: Float32Array[] = []; let active = false; let silenceFrames = 0; let commandVoicedFrames = 0; let partialSamples = 0;
 let wakeReady = false; let initialized = false; let processingFrames = false;
 let executionProvider = 'wasm'; let benchmarkedWake = false; let listening = true; let mode = 'wake';
 const threshold = 0.5;
 const frameSamples = 1280;
 const vadSamples = 512;
 const preRollSamples = 48_000;
-const wakeCommandPreRollSamples = 24_000;
+const wakeCommandPreRollSamples = 3_200;
 const sampleRate = 16_000;
 // Queued audio is capped at one second. Beyond that the oldest frames are the
 // least useful, so they are dropped and counted rather than growing latency.
@@ -97,32 +98,35 @@ let sttProvider = 'wasm';
 
 async function initialize(baseUrl: string) {
   const threads = Math.min(4, Math.max(1, (self as any).navigator?.hardwareConcurrency || 2));
-  ort.env.wasm.numThreads = threads;
+  ort.env.wasm.numThreads = (self as any).crossOriginIsolated ? threads : 1;
   postMessage({ type: 'loading', message: 'Loading wake word ONNX assets.' });
   const assets = await Promise.all(['melspectrogram.onnx', 'embedding_model.onnx', 'hey_jarvis_v0.1.onnx'].map(async (file) => ({ file, bytes: await fetchAsset(`${baseUrl}/wake.hey-jarvis/${file}`, file) })));
   const load = async (provider: string) => Promise.all(assets.map(({ bytes }) => ort.InferenceSession.create(bytes, { executionProviders: [provider] }) as unknown as Promise<Model>));
   const started = performance.now();
-  if ((self as any).navigator?.gpu) {
-    try { [mel, embedding, wake] = await load('webgpu'); await mel.run({ [mel.inputNames[0]]: new ort.Tensor('float32', new Float32Array(12600), [1, 12600]) }); executionProvider = 'webgpu'; }
-    catch { [mel, embedding, wake] = await load('wasm'); }
-  } else [mel, embedding, wake] = await load('wasm');
-  postMessage({ type: 'benchmark', component: 'wake', executionProvider, threads: executionProvider === 'wasm' ? threads : undefined, initializationMs: Math.round(performance.now() - started) });
+  [mel, embedding, wake] = await load('wasm');
+  executionProvider = 'wasm';
+  postMessage({ type: 'benchmark', component: 'wake', executionProvider, threads: (self as any).crossOriginIsolated ? threads : undefined, initializationMs: Math.round(performance.now() - started) });
   await initializeVad(baseUrl);
+  initialized = true;
+  active = mode === 'conversation' && listening;
+  postMessage({ type: 'ready' });
+  void drainFrames().catch((error) => postMessage({ type: 'error', message: error.message || String(error) }));
+
   postMessage({ type: 'loading', message: 'Loading local Whisper speech recognition.' });
-  env.allowRemoteModels = false; env.allowLocalModels = true; env.localModelPath = `${baseUrl}/`;
-  if (executionProvider === 'webgpu') {
-    try {
-      transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'webgpu' });
-      sttProvider = 'webgpu';
-    } catch {
-      transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'wasm' });
+  env.allowRemoteModels = false;
+  env.allowLocalModels = true;
+  env.localModelPath = `${baseUrl}/`;
+  transcriberPromise = pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32' })
+    .then((pipe) => {
+      transcriber = pipe;
       sttProvider = 'wasm';
-    }
-  } else {
-    transcriber = await pipeline('automatic-speech-recognition', 'stt.whisper-base-en', { dtype: 'fp32', device: 'wasm' });
-    sttProvider = 'wasm';
-  }
-  initialized = true; active = mode === 'conversation' && listening; postMessage({ type: 'ready' }); void drainFrames().catch((error) => postMessage({ type: 'error', message: error.message || String(error) }));
+      postMessage({ type: 'benchmark', component: 'stt-load', status: 'ready' });
+      return pipe;
+    })
+    .catch((error: any) => {
+      postMessage({ type: 'error', message: `Whisper speech recognition load error: ${error.message || String(error)}` });
+      return null;
+    });
 }
 
 async function drainFrames() {
@@ -143,10 +147,58 @@ async function processFrame(frame: Float32Array) {
   if (active) {
     utterance.write(frame);
     const speechScore = vadReady ? await vadScore(frame) : null;
-    const quiet = speechScore == null ? rms < 0.012 : speechScore < 0.35 && rms < 0.018;
-    silenceFrames = quiet ? silenceFrames + 1 : 0;
-    if (silenceFrames >= 12 && utterance.length > 8_000) { const samples = utterance.read(); active = mode === 'conversation'; utterance.clear(); silenceFrames = 0; partialSamples = 0; if (!(await hasSpeech(samples))) { postMessage({ type: 'transcript', text: '', rawText: '' }); return; } postMessage({ type: 'transcribing', samples: samples.length }); const started = performance.now(); const result = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); postMessage({ type: 'benchmark', component: 'stt', executionProvider: sttProvider, inferenceMs: Math.round(performance.now() - started), samples: samples.length }); postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() }); }
-    else if (utterance.length >= 48000 && utterance.length - partialSamples >= 48000) { partialSamples = utterance.length; const samples = utterance.read(); if (!(await hasSpeech(samples))) return; const partial = await transcriber(samples, { return_timestamps: false, language: 'en', task: 'transcribe' }); const text = cleanTranscript(partial.text); if (text) postMessage({ type: 'partial-transcript', text }); }
+    const isVoiced = speechScore != null ? speechScore >= 0.35 : rms >= 0.010;
+    if (isVoiced) {
+      commandVoicedFrames += 1;
+      silenceFrames = 0;
+    } else {
+      silenceFrames += 1;
+    }
+
+    const silenceTimeout = commandVoicedFrames >= 3 ? 15 : 45;
+    const isFinished = silenceFrames >= silenceTimeout && utterance.length > 8_000;
+    const maxDurationReached = utterance.length >= sampleRate * 15;
+
+    if (isFinished || maxDurationReached) {
+      const samples = utterance.read();
+      active = mode === 'conversation';
+      utterance.clear();
+      silenceFrames = 0;
+      commandVoicedFrames = 0;
+      partialSamples = 0;
+
+      if (!hasSpeech(samples)) {
+        postMessage({ type: 'transcript', text: '', rawText: '' });
+        return;
+      }
+      if (!transcriber && transcriberPromise) {
+        postMessage({ type: 'transcribing', samples: samples.length });
+        await transcriberPromise;
+      }
+      if (!transcriber) {
+        postMessage({ type: 'error', message: 'Local Whisper speech model is still loading. Please try again shortly.' });
+        return;
+      }
+      postMessage({ type: 'transcribing', samples: samples.length });
+      const started = performance.now();
+      try {
+        const result = await transcriber(samples, { return_timestamps: false });
+        postMessage({ type: 'benchmark', component: 'stt', executionProvider: sttProvider, inferenceMs: Math.round(performance.now() - started), samples: samples.length });
+        postMessage({ type: 'transcript', text: cleanTranscript(result.text), rawText: String(result.text || '').trim() });
+      } catch (error: any) {
+        postMessage({ type: 'error', message: `Whisper transcription failed: ${error.message || String(error)}` });
+      }
+    }
+    else if (utterance.length >= 48000 && utterance.length - partialSamples >= 48000) {
+      partialSamples = utterance.length;
+      const samples = utterance.read();
+      if (!hasSpeech(samples) || !transcriber) return;
+      try {
+        const partial = await transcriber(samples, { return_timestamps: false });
+        const text = cleanTranscript(partial.text);
+        if (text) postMessage({ type: 'partial-transcript', text });
+      } catch {}
+    }
     return;
   }
   if (mode !== 'wake') return;
@@ -161,7 +213,7 @@ async function processFrame(frame: Float32Array) {
 
 
 function resetCapture() {
-  active = false; utterance.clear(); silenceFrames = 0; partialSamples = 0;
+  active = false; utterance.clear(); silenceFrames = 0; commandVoicedFrames = 0; partialSamples = 0;
   resetVad();
 }
 
@@ -170,30 +222,28 @@ function startCapture(includePreRoll: boolean) {
   utterance.clear();
   if (includePreRoll) utterance.write(preRoll.read(wakeCommandPreRollSamples));
   silenceFrames = 0;
+  commandVoicedFrames = 0;
   partialSamples = 0;
   resetVad();
 }
 
 function cleanTranscript(text: string) {
-  const cleaned = String(text || '').replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise|wooshing(?: sound)?|water splashing|splashing|wind|breathing)[\])]?\.?)*\s*$/i, '').replace(/^\s*(?:hey\s+)?jarvis\b[\s,.:;-]*/i, '').trim();
+  const cleaned = String(text || '')
+    .replace(/^\s*(?:[\[(]?(?:blank_audio|blank audio|silence|no speech|music|inaudible|clicking|click|noise|wooshing(?: sound)?|water splashing|splashing|wind|breathing)[\])]?\.?)*\s*$/i, '')
+    .replace(/^\s*(?:(?:hey\s+)?(?:jarvis|elvis|travis)|age\s+of\s+(?:elvis|jarvis))\b[\s,.:;-]*/i, '')
+    .trim();
   return /^\s*[\[(]?[a-z\s-]+(?:sound|noise|music|breathing|wind)[\])]?\.?\s*$/i.test(cleaned) ? '' : cleaned;
 }
 
-async function hasSpeech(samples: Float32Array) {
-  let voiced = 0; let maxRms = 0; let energy = 0;
+function hasSpeech(samples: Float32Array) {
+  let voiced = 0; let maxRms = 0;
   for (let offset = 0; offset + frameSamples <= samples.length; offset += frameSamples) {
-    const frame = samples.slice(offset, offset + frameSamples);
+    const frame = samples.subarray(offset, offset + frameSamples);
     const rms = Math.sqrt(frame.reduce((sum, sample) => sum + sample * sample, 0) / frame.length);
-    energy += rms;
-    if (rms >= 0.014) voiced += 1;
+    if (rms >= 0.008) voiced += 1;
     maxRms = Math.max(maxRms, rms);
   }
-  if (vadReady) {
-    const score = await vadSegmentScore(samples);
-    return samples.length >= 12_000 && score >= 0.5 && voiced >= 3 && maxRms >= 0.018;
-  }
-  const avgRms = energy / Math.max(1, Math.floor(samples.length / frameSamples));
-  return samples.length >= 12_000 && voiced >= 5 && maxRms >= 0.022 && avgRms >= 0.008;
+  return samples.length >= 8_000 && voiced >= 2 && maxRms >= 0.010;
 }
 
 async function initializeVad(baseUrl: string) {

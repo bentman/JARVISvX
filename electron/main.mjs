@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, session, dialog } from 'electron';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
@@ -12,9 +13,14 @@ const projectRoot = path.resolve(here, '..');
 // A packaged application keeps runtime state beside its executable; the source
 // tree keeps it beside the project. Neither resolves inside the ASAR archive.
 const paths = createRuntimePaths({ root: app.isPackaged ? path.dirname(app.getPath('exe')) : projectRoot });
+ensureRuntimePaths(paths);
 const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
 const iconPath = app.isPackaged ? path.join(process.resourcesPath, iconFile) : path.join(projectRoot, 'src', 'icon', iconFile);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
+  try { execFileSync('icacls', [paths.cacheRoot, '/grant', '*S-1-15-2-1:(OI)(CI)F', '/T', '/Q'], { stdio: 'ignore' }); } catch {}
+}
 // Durable preferences live in data; recreatable Chromium state lives in cache.
 app.setPath('userData', paths.profileRoot);
 app.setPath('sessionData', paths.sessionRoot);
@@ -42,7 +48,11 @@ const createWindow = async () => {
   const discovery = daemon || await daemonDiscovery(paths);
   window = new BrowserWindow({ width: 1220, height: 820, minWidth: 900, minHeight: 650, show: false, icon: iconPath, webPreferences: { preload: path.join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, autoplayPolicy: 'no-user-gesture-required' } });
   window.on('close', (event) => { if (!quitting) { event.preventDefault(); window.hide(); } });
-  window.webContents.on('console-message', (_event, level, message) => { if (level >= 2) console.error(`[renderer] ${message}`); });
+  window.webContents.on('console-message', (event, ...args) => {
+    const level = typeof event?.level === 'number' ? event.level : (typeof args[0] === 'number' ? args[0] : args[0]?.level ?? 0);
+    const message = event?.message ?? (typeof args[0] === 'number' ? args[1] : args[0]?.message ?? String(event));
+    if (level >= 2) console.error(`[renderer] ${message}`);
+  });
   window.webContents.on('render-process-gone', (_event, details) => console.error(`[renderer-crash] ${details.reason}; exitCode=${details.exitCode}`));
   window.webContents.on('unresponsive', () => console.error('[renderer-crash] renderer became unresponsive'));
   if (!headlessVoiceHost) window.once('ready-to-show', () => window.show());
@@ -51,6 +61,7 @@ const createWindow = async () => {
 app.whenReady().then(async () => {
   ensureRuntimePaths(paths);
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(permission === 'media' && contents.getURL().startsWith('http://127.0.0.1:')));
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => permission === 'media' && requestingOrigin.startsWith('http://127.0.0.1:'));
 
   // The desktop host resolves migration conflicts interactively; the daemon owns
   // the single migration invocation.
