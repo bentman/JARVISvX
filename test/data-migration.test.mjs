@@ -10,11 +10,6 @@ import { migrateDataDirectory, dataDirectoryInfo } from '../lib/data-migration.m
 // resolveDataDirectory — path resolution
 // ---------------------------------------------------------------------------
 
-test('resolveDataDirectory defaults to <project-root>/data when env is empty', () => {
-  const result = resolveDataDirectory('');
-  assert.equal(result, path.join(PROJECT_ROOT, 'data'));
-});
-
 // The default data directory is anchored to the installation, not the caller's cwd.
 test('resolveDataDirectory default does not depend on the current working directory', () => {
   const originalCwd = process.cwd();

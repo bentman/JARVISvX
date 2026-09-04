@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { JarvisDatabase } from '../lib/database.mjs';
-import { VoiceRuntime, localKokoroVoices, localVoiceModes } from '../lib/voice-runtime.mjs';
+import { VoiceRuntime } from '../lib/voice-runtime.mjs';
 
 test('voice runtime status returns installed Kokoro voices and mode settings', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-vhud-db-'));
