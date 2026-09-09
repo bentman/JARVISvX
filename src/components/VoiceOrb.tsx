@@ -13,71 +13,76 @@ export function VoiceOrb({
   onOrbClick,
   size = 200
 }: VoiceOrbProps) {
-  // Color palette for soft ambient glow based on state
-  const getStateColors = (s: string) => {
+  const getStateTheme = (s: string) => {
     switch (s) {
       case 'capturing':
         return {
-          core: 'from-emerald-400 to-emerald-600',
-          glow: 'shadow-[0_0_60px_rgba(16,185,129,0.45)]',
-          border: 'border-emerald-500/40',
-          badgeBg: 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+          gradient: 'radial-gradient(circle at 35% 35%, #59ddab 0%, #10b981 50%, #064e3b 100%)',
+          shadow: '0 0 45px rgba(89, 221, 171, 0.45)',
+          border: '1px solid rgba(89, 221, 171, 0.5)'
         };
       case 'transcribing':
       case 'thinking':
         return {
-          core: 'from-purple-400 to-indigo-600',
-          glow: 'shadow-[0_0_60px_rgba(168,85,247,0.45)]',
-          border: 'border-purple-500/40',
-          badgeBg: 'bg-purple-950/80 text-purple-300 border-purple-800'
+          gradient: 'radial-gradient(circle at 35% 35%, #c084fc 0%, #a855f7 50%, #581c87 100%)',
+          shadow: '0 0 45px rgba(168, 85, 247, 0.45)',
+          border: '1px solid rgba(168, 85, 247, 0.5)'
         };
       case 'speaking':
         return {
-          core: 'from-cyan-400 to-blue-600',
-          glow: 'shadow-[0_0_60px_rgba(59,130,246,0.5)]',
-          border: 'border-cyan-500/40',
-          badgeBg: 'bg-cyan-950/80 text-cyan-300 border-cyan-800'
+          gradient: 'radial-gradient(circle at 35% 35%, #7ae0fc 0%, #0ea5e9 50%, #1e3a8a 100%)',
+          shadow: '0 0 50px rgba(83, 212, 255, 0.5)',
+          border: '1px solid rgba(83, 212, 255, 0.5)'
         };
       case 'interrupted':
         return {
-          core: 'from-rose-400 to-rose-600',
-          glow: 'shadow-[0_0_60px_rgba(244,63,94,0.5)]',
-          border: 'border-rose-500/40',
-          badgeBg: 'bg-rose-950/80 text-rose-300 border-rose-800'
+          gradient: 'radial-gradient(circle at 35% 35%, #fb7185 0%, #f43f5e 50%, #881337 100%)',
+          shadow: '0 0 45px rgba(244, 63, 94, 0.5)',
+          border: '1px solid rgba(244, 63, 94, 0.5)'
         };
       case 'wake-listening':
       default:
         return {
-          core: 'from-cyan-500 to-slate-700',
-          glow: 'shadow-[0_0_45px_rgba(6,182,212,0.25)]',
-          border: 'border-cyan-500/30',
-          badgeBg: 'bg-cyan-950/60 text-cyan-300 border-cyan-900'
+          gradient: 'radial-gradient(circle at 35% 35%, #38bdf8 0%, #0369a1 60%, #0c1b29 100%)',
+          shadow: '0 0 35px rgba(83, 212, 255, 0.25)',
+          border: '1px solid rgba(83, 212, 255, 0.3)'
         };
     }
   };
 
-  const colors = getStateColors(state);
-  const glowScale = 1 + Math.min(audioLevel * 0.15, 0.2);
+  const theme = getStateTheme(state);
+  const glowScale = 1 + Math.min(audioLevel * 0.2, 0.25);
 
   return (
     <div
       onClick={onOrbClick}
-      className="relative flex flex-col items-center justify-center cursor-pointer select-none group transition-all"
+      className="relative flex flex-col items-center justify-center cursor-pointer select-none transition-all"
       title="Click to trigger voice capture / barge-in"
+      style={{ width: size, height: size }}
     >
-      {/* Soft Ambient Glow Container - No fast animations */}
       <div
-        className={`relative rounded-full bg-gradient-to-tr ${colors.core} ${colors.glow} border ${colors.border} transition-all duration-300 flex items-center justify-center`}
+        className="rounded-full flex items-center justify-center transition-all duration-300"
         style={{
           width: size,
           height: size,
+          background: theme.gradient,
+          boxShadow: theme.shadow,
+          border: theme.border,
           transform: `scale(${glowScale})`
         }}
       >
         {/* Inner Subtle Core Highlight */}
-        <div className="w-1/2 h-1/2 rounded-full bg-white/20 backdrop-blur-sm shadow-inner" />
+        <div
+          className="rounded-full shadow-inner"
+          style={{
+            width: `${size * 0.45}px`,
+            height: `${size * 0.45}px`,
+            background: 'rgba(255, 255, 255, 0.22)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)'
+          }}
+        />
       </div>
     </div>
   );
 }
-

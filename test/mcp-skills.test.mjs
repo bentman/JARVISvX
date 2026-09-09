@@ -10,6 +10,7 @@ import { JarvisDatabase } from '../lib/database.mjs';
 import { createJarvisApp } from '../lib/application.mjs';
 import { createRuntimePaths } from '../lib/runtime-paths.mjs';
 import { createApiRouter } from '../lib/api.mjs';
+import { findCapability } from '../lib/capabilities.mjs';
 import express from 'express';
 
 const stdioFixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'mcp-stdio-server.mjs');
@@ -365,6 +366,21 @@ INSERT INTO mcp_servers VALUES ('legacy','Legacy','http','http://127.0.0.1:1/mcp
     assert.equal(migrated.lastProbeAt, null);
     db.close();
   } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('execute_query tool exposes READ_MODEL_NAMES as enum in capability schema', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mcp-schema-'));
+  const db = new JarvisDatabase(path.join(directory, 'jarvis.sqlite'));
+  try {
+    const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
+    const queryTool = findCapability(app, 'execute_query');
+    assert.ok(queryTool, 'execute_query capability exists');
+    assert.deepEqual(queryTool.parameters?.properties?.model?.enum, db.readModelNames());
+    assert.ok(queryTool.parameters?.required?.includes('model'));
+  } finally {
+    db.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

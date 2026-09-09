@@ -63,9 +63,8 @@ share is refused at startup rather than run with reduced durability.
 
 No data is written to `%APPDATA%` or a home-directory folder — this holds regardless of
 the working directory `jarvis` is launched from, since defaults are anchored to the
-install directory, not the current shell's cwd. (The one unrelated exception is npm's
-own global `jarvis` command shim under `%APPDATA%\npm`, created by `npm link` itself —
-see the `npm link` troubleshooting note in [docs/QuickStart-windows.md](docs/QuickStart-windows.md).)
+install directory, not the current shell's cwd. (If you previously used `npm link`, run
+`npm uninstall -g jarvis jarvisvx` to clean up any legacy npm global symlinks.)
 
 ## Providers
 

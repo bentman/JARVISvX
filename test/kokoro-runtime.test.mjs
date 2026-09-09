@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { Worker } from 'node:worker_threads';
+import { JarvisDatabase } from '../lib/database.mjs';
 import { voiceModelManifest } from '../lib/model-bootstrap.mjs';
 import { VoiceRuntime, localKokoroVoices } from '../lib/voice-runtime.mjs';
 import { cleanVoiceTranscript } from '../lib/voice-transcript.mjs';
@@ -58,6 +60,10 @@ test('voice mode changes are persisted and published for the audio host', () => 
   assert.equal(runtime.mode, 'ptt');
   assert.equal(settings.get('voice.mode'), 'ptt');
   assert.deepEqual(events.at(-1), { type: 'voice-state', state: 'bootstrap', mode: 'ptt', message: runtime.message('bootstrap') });
+
+  runtime.setState('capturing', 'Listening for speech');
+  assert.equal(runtime.state, 'capturing');
+
   assert.throws(() => runtime.setMode('always-on'), /Unsupported local voice mode/);
 });
 
@@ -74,10 +80,33 @@ test('voice transcripts drop blank audio placeholders and wake prefixes', () => 
   assert.equal(cleanVoiceTranscript('Hey Elvis'), null);
   assert.equal(cleanVoiceTranscript('Age of Elvis. That\'s the capital of Mexico.'), 'That\'s the capital of Mexico.');
   assert.equal(cleanVoiceTranscript('Hey Jarvis, what is the capital of the United States?'), 'what is the capital of the United States?');
+  assert.equal(runtime.transcript('partial', 'Hey Jarvis what is the weather'), true);
+  assert.ok(events.some((e) => e.type === 'partial-transcript' && e.text.includes('what is the weather')));
   assert.equal(runtime.transcript('final', '[BLANK_AUDIO]'), false);
   assert.equal(runtime.transcript('final', 'Jarvis: what is the capital of the United States?'), true);
   assert.equal(events.at(-1).text, 'what is the capital of the United States?');
   assert.equal(settings.get('voice.active-session').state, 'thinking');
+});
+
+test('the interaction mode is durable and a recorded transient state is not reported as live', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-voice-durable-'));
+  const dbPath = path.join(directory, 'jarvis.sqlite');
+
+  const first = new JarvisDatabase(dbPath);
+  const before = new VoiceRuntime({ database: first, publish: () => {} });
+  before.setMode('conversation');
+  before.setState('capturing', 'Mid-utterance when the process ended.');
+  first.close();
+
+  const second = new JarvisDatabase(dbPath);
+  const after = new VoiceRuntime({ database: second, publish: () => {} });
+  const status = await after.status();
+
+  assert.equal(status.mode, 'conversation', 'the selected mode survives a restart');
+  assert.notEqual(status.state, 'capturing', 'a transient state is not restored as the live one');
+
+  second.close();
+  await fs.rm(directory, { recursive: true, force: true });
 });
 
 const kokoroBundleInstalled = (await present(path.resolve('models/tts/kokoro-v1/kokoro-v1.0.onnx'))) && (await present(path.resolve('models/tts/kokoro-v1/voices-v1.0.bin')));

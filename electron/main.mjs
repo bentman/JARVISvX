@@ -46,7 +46,7 @@ app.on('second-instance', () => {
 });
 const createWindow = async () => {
   const discovery = daemon || await daemonDiscovery(paths);
-  window = new BrowserWindow({ width: 1220, height: 820, minWidth: 900, minHeight: 650, show: false, icon: iconPath, webPreferences: { preload: path.join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, autoplayPolicy: 'no-user-gesture-required' } });
+  window = new BrowserWindow({ width: 1220, height: 820, minWidth: 900, minHeight: 650, show: false, backgroundColor: '#07111c', icon: iconPath, webPreferences: { preload: path.join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, autoplayPolicy: 'no-user-gesture-required' } });
   window.on('close', (event) => { if (!quitting) { event.preventDefault(); window.hide(); } });
   window.webContents.on('console-message', (event, ...args) => {
     const level = typeof event?.level === 'number' ? event.level : (typeof args[0] === 'number' ? args[0] : args[0]?.level ?? 0);

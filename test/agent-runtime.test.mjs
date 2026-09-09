@@ -532,6 +532,37 @@ test('API endpoints return agent list and execute agent run', async () => {
   }
 });
 
+test('startAgentRun returns running record immediately and completes asynchronously, inspectable via agentRun', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initializeCore();
+  useDeterministicProcessAgents(app, ['reviewer']);
+
+  try {
+    const started = app.startAgentRun({
+      agentId: 'reviewer',
+      objective: 'Async review task',
+      mode: 'solo'
+    });
+    assert.ok(started.id);
+    assert.equal(started.status, 'running');
+
+    let terminal = null;
+    for (let i = 0; i < 50; i += 1) {
+      const record = app.agentRun(started.id);
+      if (record.status === 'completed' || record.status === 'failed') {
+        terminal = record;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.ok(terminal, 'run reached terminal status');
+    assert.equal(terminal.status, 'completed');
+    assert.match(terminal.result, /reviewer: Async review task/);
+  } finally {
+    cleanup();
+  }
+});
+
 // --- agents_send follow-up delivery ---
 
 test('AcpAdapter.send writes to a still-running interactive process, and fails honestly once it has exited', async () => {
@@ -659,6 +690,77 @@ test('the synthesizer receives the participant output it is asked to synthesize'
     assert.ok(finalSynthesis.includes('Critiques and refinements:'), 'debate synthesis carries the round-two critiques');
     assert.ok(finalSynthesis.includes('Provide your critique and refine your position.'), 'the critiques themselves are present, not just their heading');
   } finally {
+    cleanup();
+  }
+});
+
+test('multi-agent run separates reasoning from dialog tokens and emits speaker persona events', async () => {
+  const { app, cleanup } = createTestApp();
+  await app.initializeCore();
+
+  const events = [];
+  const unsubscribe = app.events.subscribe((event) => events.push(event));
+
+  // Set up agents that produce both internal reasoning and dialog
+  for (const id of ['architect', 'reviewer']) {
+    const agent = app.agentRuntime.registry.get(id);
+    app.agentRuntime.registry.profiles.set(id, { ...agent, adapter: 'process', capabilities: ['workspace.read'] });
+  }
+
+  app.agentRuntime.adapters.set('process', {
+    async *invoke({ agent, prompt, runId }) {
+      yield {
+        type: 'token',
+        runId,
+        agentId: agent.id,
+        value: `<think>Analyzing ${prompt}</think>Conclusion from ${agent.id}`
+      };
+      yield { type: 'completed', runId, agentId: agent.id };
+    }
+  });
+
+  try {
+    const run = await app.executeAgentRun({
+      agentIds: ['architect', 'reviewer'],
+      objective: 'Verify architecture',
+      mode: 'panel'
+    });
+
+    assert.equal(run.status, 'completed');
+    // Internal thinking must not be in the visible result
+    assert.ok(!run.result.includes('<think>'));
+    assert.ok(!run.result.includes('Analyzing'));
+    assert.ok(run.result.includes('Conclusion from architect'));
+    assert.ok(run.result.includes('Conclusion from reviewer'));
+
+    // Verify published events
+    const startEvents = events.filter((e) => e.type === 'agent-start');
+    const tokenEvents = events.filter((e) => e.type === 'agent-token');
+    const reasoningEvents = events.filter((e) => e.type === 'agent-reasoning');
+    const turnCompleteEvents = events.filter((e) => e.type === 'agent-turn-complete');
+    const runCompleteEvents = events.filter((e) => e.type === 'agent-run-complete');
+
+    assert.ok(startEvents.length >= 2, 'agent-start emitted for each speaker');
+    assert.ok(startEvents.some((e) => e.agentId === 'architect' && e.speaker.voice === 'bm_george'));
+    assert.ok(startEvents.some((e) => e.agentId === 'reviewer' && e.speaker.voice === 'af_sarah'));
+
+    assert.ok(reasoningEvents.length >= 2, 'agent-reasoning emitted separately');
+    for (const r of reasoningEvents) {
+      assert.ok(r.value.includes('Analyzing'));
+    }
+
+    assert.ok(tokenEvents.length >= 2, 'agent-token emitted for dialog only');
+    for (const t of tokenEvents) {
+      assert.ok(!t.value.includes('<think>'));
+      assert.ok(!t.value.includes('Analyzing'));
+      assert.ok(t.speaker?.voice, 'token has speaker voice persona');
+    }
+
+    assert.ok(turnCompleteEvents.length >= 2, 'agent-turn-complete emitted');
+    assert.ok(runCompleteEvents.length === 1, 'agent-run-complete emitted');
+    assert.equal(runCompleteEvents[0].status, 'completed');
+  } finally {
+    unsubscribe();
     cleanup();
   }
 });

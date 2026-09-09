@@ -13,6 +13,7 @@
   },
   "scripts": {
     "dev": "node server.mjs",
+    "cli": "node bin/jarvis.mjs",
     "build": "vite build",
     "start": "node daemon.mjs",
     "daemon": "node daemon.mjs",

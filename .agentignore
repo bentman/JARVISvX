@@ -1,1 +1,5 @@
-docs/archives
+docs/archives/
+cache/electron/
+data/electron-profile/
+data/sql-db/
+models/

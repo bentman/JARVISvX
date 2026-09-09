@@ -17,15 +17,20 @@ if (command === 'help' || command === '--help' || command === '-h') { printHelp(
 
 // The daemon is opened on first use, not before dispatch, so a command that
 // rejects its own arguments never starts or waits for one. Streaming methods
-// keep their async-iterable shape; every other call resolves through the same
-// single connection.
+// Surface error.cause where fetch and network failures wrap the root cause.
+function formatError(error) {
+  if (!error) return 'Unknown error';
+  const cause = error.cause?.message || (typeof error.cause === 'string' ? error.cause : null);
+  return cause ? `${error.message} (${cause})` : error.message;
+}
+
 let connection;
 const connect = async () => (connection ??= await DaemonClient.connect());
 const STREAMING = new Set(['chat', 'events']);
 // The interactive surfaces draw only once a daemon answers: a session that
 // renders and then fails every request reads as working when it is not.
 const connectOrExit = async () => {
-  try { return await connect(); } catch (error) { console.error(error.message); process.exit(1); }
+  try { return await connect(); } catch (error) { console.error(formatError(error)); process.exit(1); }
 };
 const client = new Proxy({}, {
   get: (_target, method) => (STREAMING.has(method)
@@ -79,6 +84,7 @@ function printHelp() {
     '                      [--provider <id>] [--model <name>] [--json]',
     '                      [--allow-cloud] [--allow-tools] [--resume <id>|--continue]',
     '  agent list          List agent profiles',
+    '  agent runs [id]     List recent agent runs or view a run by ID',
     '  agent run <id> "<objective>" [--allow-cloud] [--approve] [--conversation <id>] [--json]',
     '  agent panel a1 a2 -- "<objective>"   Run a synthesized multi-agent panel',
     '  agent debate a1 a2 -- "<objective>"  Run a bounded 2-round debate',
@@ -126,6 +132,18 @@ async function ask(rawArgs) {
 async function agentCommand(list) {
   const [action, ...rest] = list;
   if (action === 'list') { const agents = await client.agents(); console.log(agents.map((a) => `${a.id.padEnd(12)} ${a.name.padEnd(14)} adapter:${a.adapter}${a.cli ? `/${a.cli}` : ''}  voice:${a.voice}${a.isBuiltIn ? '' : '  (custom)'}${a.available === false ? '  [unavailable: CLI not installed for this session]' : ''}`).join('\n') || 'No agents configured.'); return; }
+  if (action === 'runs') {
+    const runId = rest[0];
+    if (runId) {
+      const run = await client.agentRun(runId);
+      console.log(JSON.stringify(run, null, 2));
+      return;
+    }
+    const runs = await client.agentRuns();
+    if (!runs.length) { console.log('No agent runs recorded.'); return; }
+    console.log(runs.map((r) => `${r.id.padEnd(12)} ${(r.agent_id || r.agentId || '').padEnd(14)} ${(r.mode || '').padEnd(8)} ${(r.status || 'unknown').padEnd(10)} ${(r.objective || '').slice(0, 40)}`).join('\n'));
+    return;
+  }
   if (action === 'run') {
     const { positional, values } = parseArgs(rest, { valueFlags: ['conversation'] });
     const [agentId, ...objectiveParts] = positional;
@@ -155,7 +173,7 @@ async function agentCommand(list) {
     if (run.status === 'failed') process.exitCode = 1;
     return;
   }
-  throw new Error('Usage: jarvis agent <list|run <id> "<objective>"|panel a1 a2 -- "<objective>"|debate a1 a2 -- "<objective>">');
+  throw new Error('Usage: jarvis agent <list|runs [id]|run <id> "<objective>"|panel a1 a2 -- "<objective>"|debate a1 a2 -- "<objective>">');
 }
 async function mcpCommand(list) {
   const [action, ...rest] = list;
@@ -201,8 +219,22 @@ async function repl() { process.stderr.write('JARVIS CLI requires a TTY for the 
 
 function Tui({ client }) {
   const { exit } = useApp(); const [input, setInput] = useState(''); const [lines, setLines] = useState([]); const [conversation, setConversation] = useState(null); const [status, setStatus] = useState('connecting'); const [provider, setProvider] = useState('default'); const [routed, setRouted] = useState(''); const [model, setModel] = useState(''); const [voiceState, setVoiceState] = useState('connecting'); const [cloudApproved, setCloudApproved] = useState(false); const [agentApproved, setAgentApproved] = useState(false); const [toolsApproved, setToolsApproved] = useState(false); const activeTurn = useRef(null);
-  useEffect(() => { client.providers().then((data) => { setModel(data.settings.activeModel || ''); setStatus('ready'); }).catch((error) => setStatus(error.message)); client.voice().then((voice) => setVoiceState(voice.state)).catch(() => setVoiceState('unavailable')); }, []);
-  useEffect(() => { const controller = new AbortController(); void (async () => { try { for await (const event of client.events(controller.signal)) { if (event.type === 'voice-state') { setVoiceState(event.state); continue; } if (event.type === 'partial-transcript' || event.type === 'final-transcript') { setLines((items) => [...items, { role: 'voice', content: `${event.type === 'partial-transcript' ? 'Hearing' : 'Heard'}: ${event.text}` }]); continue; } if (event.type === 'playback') { setVoiceState(event.state === 'started' ? 'speaking' : event.state === 'complete' ? 'wake-listening' : voiceState); continue; } if (event.type === 'token' && event.conversationId !== activeTurn.current) { setLines((items) => { const last = items.at(-1); return last?.role === 'jarvis' && last.remoteConversationId === event.conversationId ? [...items.slice(0, -1), { ...last, content: last.content + event.value }] : [...items, { role: 'jarvis', remoteConversationId: event.conversationId, content: event.value }]; }); } if (event.type === 'cancelled' && event.conversationId !== activeTurn.current) setLines((items) => [...items, { role: 'system', content: `Remote turn cancelled (${event.conversationId?.slice(0, 8) || 'unknown'}).` }]); } } catch (error) { if (!controller.signal.aborted) setStatus(`event stream: ${error.message}`); } })(); return () => controller.abort(); }, [client]);
+  useEffect(() => { client.providers().then((data) => { setModel(data.settings.activeModel || ''); setStatus('ready'); }).catch((error) => setStatus(formatError(error))); client.voice().then((voice) => setVoiceState(voice.state)).catch(() => setVoiceState('unavailable')); }, []);
+  useEffect(() => { const controller = new AbortController(); void (async () => { try { for await (const event of client.events(controller.signal)) { if (event.type === 'voice-state') { setVoiceState(event.state); continue; } if (event.type === 'partial-transcript' || event.type === 'final-transcript') { setLines((items) => [...items, { role: 'voice', content: `${event.type === 'partial-transcript' ? 'Hearing' : 'Heard'}: ${event.text}` }]); continue; } if (event.type === 'playback') { setVoiceState(event.state === 'started' ? 'speaking' : event.state === 'complete' ? 'wake-listening' : voiceState); continue; }
+          if (event.type === 'agent-start') {
+            setLines((items) => [...items, { role: 'agent', runId: event.runId, agentId: event.agentId, content: `[${event.speaker?.name || event.agentId}${event.speaker?.voice ? ` · ${event.speaker.voice}` : ''}]:` }]);
+            continue;
+          }
+          if (event.type === 'agent-token') {
+            setLines((items) => {
+              const last = items.at(-1);
+              return last?.role === 'agent' && last.runId === event.runId
+                ? [...items.slice(0, -1), { ...last, content: last.content + event.value }]
+                : [...items, { role: 'agent', runId: event.runId, content: `[${event.speaker?.name || event.agentId}]: ${event.value}` }];
+            });
+            continue;
+          }
+          if (event.type === 'token' && event.conversationId !== activeTurn.current) { setLines((items) => { const last = items.at(-1); return last?.role === 'jarvis' && last.remoteConversationId === event.conversationId ? [...items.slice(0, -1), { ...last, content: last.content + event.value }] : [...items, { role: 'jarvis', remoteConversationId: event.conversationId, content: event.value }]; }); } if (event.type === 'cancelled' && event.conversationId !== activeTurn.current) setLines((items) => [...items, { role: 'system', content: `Remote turn cancelled (${event.conversationId?.slice(0, 8) || 'unknown'}).` }]); } } catch (error) { if (!controller.signal.aborted) setStatus(`event stream: ${formatError(error)}`); } })(); return () => controller.abort(); }, [client]);
   useInput((value, key) => { if (key.escape && conversation) void client.cancel(conversation.id); if (key.ctrl && value === 'c') exit(); });
   const submit = async (value) => {
     const content = value.trim();
@@ -225,13 +257,10 @@ function Tui({ client }) {
             wantsAgent && { action: 'agent.privileged', target: agentId },
             wantsCloud && { action: 'provider.cloud', target: 'auto' },
           );
-          const run = await client.json('/agents/run', {
-            method: 'POST',
-            body: JSON.stringify({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approvals })
-          });
+          const run = await client.runAgent({ agentId, objective: prompt, mode: 'solo', conversationId: conversation?.id, approvals });
           setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result || 'Agent run complete.' }]);
         } catch (error) {
-          setLines((items) => [...items, { role: 'error', content: error.message }]);
+          setLines((items) => [...items, { role: 'error', content: formatError(error) }]);
         }
         return;
       }
@@ -257,7 +286,7 @@ function Tui({ client }) {
         if (event.type === 'error' || event.type === 'cancelled') setLines((items) => [...items, { role: 'system', content: event.message || 'Turn cancelled.' }]);
       }
     } catch (error) {
-      setLines((items) => [...items, { role: 'error', content: error.message }]);
+      setLines((items) => [...items, { role: 'error', content: formatError(error) }]);
     } finally {
       activeTurn.current = null;
     }
@@ -271,12 +300,24 @@ function Tui({ client }) {
       if (name === 'resume') { const session = await client.conversation(rest[0]); setConversation(session); return setLines(session.messages.map((item) => ({ role: item.role === 'user' ? 'you' : 'jarvis', content: item.content }))); }
       if (name === 'doctor') { const report = await client.diagnostics(); return setLines((items) => [...items, { role: 'system', content: JSON.stringify(report, null, 2) }]); }
       if (name === 'agents') { const agents = await client.json('/agents'); return setLines((items) => [...items, { role: 'system', content: agents.map((a) => `@${a.id.padEnd(12)} (${a.name}) · ${a.description} [voice: ${a.voice}]`).join('\n') }]); }
+      if (name === 'runs') {
+        const runId = rest[0];
+        if (runId) {
+          const run = await client.agentRun(runId);
+          return setLines((items) => [...items, { role: 'system', content: JSON.stringify(run, null, 2) }]);
+        }
+        const runs = await client.agentRuns(conversation?.id || null);
+        return setLines((items) => [...items, {
+          role: 'system',
+          content: runs.map((r) => `${r.id.slice(0, 8)}  @${(r.agent_id || r.agentId || '').padEnd(12)} ${(r.mode || '').padEnd(8)} ${(r.status || 'unknown').padEnd(10)} ${(r.objective || '').slice(0, 40)}`).join('\n') || 'No runs recorded.'
+        }]);
+      }
       if (name === 'panel' || name === 'debate') {
         const rawArgs = rest.join(' ');
         const [agentsPart, ...objParts] = rawArgs.split('--');
         const agentIds = agentsPart ? agentsPart.trim().split(/\s+/).filter(Boolean) : [];
         const objective = objParts.join('--').trim();
-        if (!objective) return setLines((items) => [...items, { role: 'error', content: `Usage: /${name} agent1 agent2 -- objective` }]);
+        if (!agentIds.length || !objective) return setLines((items) => [...items, { role: 'error', content: `Usage: /${name} agent1 agent2 -- objective` }]);
         setLines((items) => [...items, { role: 'you', content: `/${name} ${rawArgs}` }, { role: 'jarvis', content: `Running multi-agent ${name}...\n` }]);
         const wantsAgent = agentApproved;
         const wantsCloud = cloudApproved;
@@ -287,13 +328,10 @@ function Tui({ client }) {
             ...(wantsAgent ? agentIds.map((id) => ({ action: 'agent.privileged', target: id })) : []),
             wantsCloud && { action: 'provider.cloud', target: 'auto' },
           );
-          const run = await client.json('/agents/run', {
-            method: 'POST',
-            body: JSON.stringify({ agentIds, objective, mode: name, conversationId: conversation?.id, approvals })
-          });
-          setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result }]);
+          const run = await client.runAgent({ agentIds, objective, mode: name, conversationId: conversation?.id, approvals });
+          setLines((items) => [...items.slice(0, -1), { role: 'jarvis', content: run.result || 'Agent run complete.' }]);
         } catch (error) {
-          setLines((items) => [...items, { role: 'error', content: error.message }]);
+          setLines((items) => [...items, { role: 'error', content: formatError(error) }]);
         }
         return;
       }
@@ -311,6 +349,7 @@ function Tui({ client }) {
       if (name === 'help') return setLines((items) => [...items, { role: 'system', content: [
         '@<agent> <prompt> Start direct agent execution (e.g. @architect design plugin)',
         '/agents            List all project agent profiles & voice personas',
+        '/runs [id]         List recent agent runs or view run details by ID',
         '/panel a1 a2 -- obj Run panel of agents with synthesis',
         '/debate a1 a2 -- obj Run 2-round bounded debate with consensus synthesis',
         '/new               Start a fresh assistant conversation',
@@ -335,8 +374,8 @@ function Tui({ client }) {
       ].join('\n') }]);
       setLines((items) => [...items, { role: 'error', content: `Unknown or incomplete command: /${name}` }]);
     } catch (error) {
-      setLines((items) => [...items, { role: 'error', content: error.message }]);
+      setLines((items) => [...items, { role: 'error', content: formatError(error) }]);
     }
   };
-  return React.createElement(Box, { flexDirection: 'column', padding: 1 }, React.createElement(Text, { color: 'cyan', bold: true }, 'JARVISvX  ', React.createElement(Text, { color: status === 'ready' ? 'green' : 'yellow' }, status), `  voice:${voiceState}  provider:${provider === 'default' ? `Automatic${routed ? ` → ${routed}` : ''}` : `${provider}${model ? `/${model}` : ''}`}  ${conversation ? `session:${conversation.id.slice(0, 8)}` : 'new session'}`), React.createElement(Box, { flexDirection: 'column', marginTop: 1 }, lines.slice(-20).map((line, index) => React.createElement(Box, { key: `${index}-${line.content.slice(0, 12)}`, flexDirection: 'column' }, React.createElement(Text, { color: line.role === 'you' ? 'cyan' : line.role === 'error' ? 'red' : line.role === 'system' || line.role === 'voice' ? 'yellow' : 'green', bold: true }, line.role.toUpperCase()), React.createElement(Text, null, line.content || '…')))), React.createElement(Box, { marginTop: 1 }, React.createElement(Text, { color: 'cyan' }, '> '), React.createElement(TextInput, { value: input, onChange: setInput, onSubmit: submit, placeholder: 'Ask JARVIS or type /help' })), React.createElement(Text, { dimColor: true }, 'Voice events are live · Esc interrupts active work · Ctrl+C exits · /help commands'));
+  return React.createElement(Box, { flexDirection: 'column', padding: 1 }, React.createElement(Text, { color: 'cyan', bold: true }, 'JARVISvX  ', React.createElement(Text, { color: status === 'ready' ? 'green' : 'yellow' }, status), `  voice:${voiceState}  provider:${provider === 'default' ? `Automatic${routed ? ` → ${routed}` : ''}` : `${provider}${model ? `/${model}` : ''}`}  ${conversation ? `session:${conversation.id.slice(0, 8)}` : 'new session'}`), React.createElement(Box, { flexDirection: 'column', marginTop: 1 }, lines.slice(-20).map((line, index) => React.createElement(Box, { key: `${index}-${line.content.slice(0, 12)}`, flexDirection: 'column' }, React.createElement(Text, { color: line.role === 'you' ? 'cyan' : line.role === 'error' ? 'red' : line.role === 'system' || line.role === 'voice' ? 'yellow' : line.role === 'agent' ? 'magenta' : 'green', bold: true }, line.role.toUpperCase()), React.createElement(Text, null, line.content || '…')))), React.createElement(Box, { marginTop: 1 }, React.createElement(Text, { color: 'cyan' }, '> '), React.createElement(TextInput, { value: input, onChange: setInput, onSubmit: submit, placeholder: 'Ask JARVIS or type /help' })), React.createElement(Text, { dimColor: true }, 'Voice events are live · Esc interrupts active work · Ctrl+C exits · /help commands'));
 }

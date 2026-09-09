@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { AgentEditorOptions, AgentProfile, AgentRun } from '../types';
-import { Users, Bot, Play, Clock, X, Plus, Pencil, Save, Trash2 } from 'lucide-react';
+import { Users, Bot, Play, Clock, X, Plus, Pencil, Save, Trash2, MessageSquare, Volume2, VolumeX } from 'lucide-react';
+import { useDaemonEvents } from '../events';
 import { PanelCard } from './ui/PanelCard';
 import { PanelHeader } from './ui/PanelHeader';
 import { SectionDivider } from './ui/SectionDivider';
@@ -147,6 +148,26 @@ function profileToForm(agent: AgentProfile): AgentFormState {
     instructions: agent.instructions
   };
 }
+
+
+interface AgentDialogTurn {
+  id: string;
+  agentId: string;
+  name: string;
+  voice: string;
+  text: string;
+  status: 'streaming' | 'complete';
+}
+
+const AGENT_COLORS: Record<string, { badge: string; border: string; text: string }> = {
+  architect: { badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40', border: 'border-cyan-500/30', text: 'text-cyan-400' },
+  reviewer: { badge: 'bg-purple-500/20 text-purple-300 border-purple-500/40', border: 'border-purple-500/30', text: 'text-purple-400' },
+  builder: { badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40', border: 'border-emerald-500/30', text: 'text-emerald-400' },
+  adversary: { badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40', border: 'border-amber-500/30', text: 'text-amber-400' },
+  security: { badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40', border: 'border-rose-500/30', text: 'text-rose-400' },
+  debugger: { badge: 'bg-orange-500/20 text-orange-300 border-orange-500/40', border: 'border-orange-500/30', text: 'text-orange-400' },
+  researcher: { badge: 'bg-blue-500/20 text-blue-300 border-blue-500/40', border: 'border-blue-500/30', text: 'text-blue-400' }
+};
 
 // Create and edit forms share backend-provided options and length limits.
 function AgentFieldsEditor({
@@ -477,7 +498,10 @@ export function AgentOrchestrationView() {
   const [selectedMode, setSelectedMode] = useState<'solo' | 'panel' | 'debate'>('solo');
   const [objective, setObjective] = useState('');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'profiles' | 'runs'>('profiles');
+  const [activeTab, setActiveTab] = useState<'profiles' | 'dialog' | 'runs'>('profiles');
+  const [dialogTurns, setDialogTurns] = useState<AgentDialogTurn[]>([]);
+  const [activeSpeaker, setActiveSpeaker] = useState<{ name: string; voice: string; id: string } | null>(null);
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -519,6 +543,7 @@ export function AgentOrchestrationView() {
       }
       if (fetchedOptions) setEditorOptions(fetchedOptions);
       if (voiceStatus && Array.isArray(voiceStatus.voices) && voiceStatus.voices.length) setVoices(voiceStatus.voices);
+      if (voiceStatus && typeof voiceStatus.enabled === 'boolean') setVoiceEnabled(voiceStatus.enabled);
     } catch {
       setAgents(FALLBACK_PROFILES);
     }
@@ -527,6 +552,81 @@ export function AgentOrchestrationView() {
   useEffect(() => {
     void loadData();
   }, []);
+
+
+  useDaemonEvents((event) => {
+    if (event.type === 'agent-start') {
+      setActiveTab('dialog');
+      setActiveSpeaker(event.speaker || { name: event.agentId, voice: 'default', id: event.agentId });
+      setDialogTurns((prev) => [
+        ...prev,
+        {
+          id: `${event.runId || 'run'}-${event.agentId}-${Date.now()}`,
+          agentId: event.agentId,
+          name: event.speaker?.name || event.agentId,
+          voice: event.speaker?.voice || 'default',
+          text: '',
+          status: 'streaming'
+        }
+      ]);
+    } else if (event.type === 'agent-token') {
+      setDialogTurns((prev) => {
+        if (!prev.length) {
+          return [{
+            id: `${event.runId || 'run'}-${event.agentId}-${Date.now()}`,
+            agentId: event.agentId,
+            name: event.speaker?.name || event.agentId,
+            voice: event.speaker?.voice || 'default',
+            text: event.value,
+            status: 'streaming'
+          }];
+        }
+        const last = prev[prev.length - 1];
+        if (last.agentId !== event.agentId || last.status === 'complete') {
+          return [
+            ...prev,
+            {
+              id: `${event.runId || 'run'}-${event.agentId}-${Date.now()}`,
+              agentId: event.agentId,
+              name: event.speaker?.name || event.agentId,
+              voice: event.speaker?.voice || 'default',
+              text: event.value,
+              status: 'streaming'
+            }
+          ];
+        }
+        return [
+          ...prev.slice(0, -1),
+          { ...last, text: last.text + event.value }
+        ];
+      });
+    } else if (event.type === 'agent-turn-complete') {
+      setDialogTurns((prev) => {
+        if (!prev.length) return prev;
+        const last = prev[prev.length - 1];
+        return [
+          ...prev.slice(0, -1),
+          { ...last, text: event.text || last.text, status: 'complete' }
+        ];
+      });
+      setActiveSpeaker(null);
+    } else if (event.type === 'agent-run-complete') {
+      setActiveSpeaker(null);
+      void loadData();
+    } else if (event.type === 'voice-state' && typeof event.enabled === 'boolean') {
+      setVoiceEnabled(event.enabled);
+    }
+  });
+
+  const handleToggleVoice = async () => {
+    const next = !voiceEnabled;
+    try {
+      await api.setListening(next);
+      setVoiceEnabled(next);
+    } catch (err: any) {
+      setError(err.message || 'Failed to toggle voice audio');
+    }
+  };
 
   const handleAgentUpdated = (updated: AgentProfile) => {
     setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
@@ -546,6 +646,8 @@ export function AgentOrchestrationView() {
     e.preventDefault();
     if (!objective.trim()) return;
     setLoading(true);
+    setActiveTab('dialog');
+    setDialogTurns([]);
     // The approval control represents the next accepted run only.
     const wanted = approved ? privilegedAgentIds : [];
     setApproved(false);
@@ -581,6 +683,12 @@ export function AgentOrchestrationView() {
               onClick={() => setActiveTab('profiles')}
             >
               Agent Profiles ({agents.length})
+            </button>
+            <button
+              className={`btn btn-sm ${activeTab === 'dialog' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('dialog')}
+            >
+              Agent Dialog ({dialogTurns.length ? dialogTurns.length : 'Live'})
             </button>
             <button
               className={`btn btn-sm ${activeTab === 'runs' ? 'btn-primary' : 'btn-secondary'}`}
@@ -737,6 +845,75 @@ export function AgentOrchestrationView() {
             />
           )}
         </>
+      )}
+
+      {/* Dialog Tab */}
+      {activeTab === 'dialog' && (
+        <PanelCard gap="none">
+          <div className="flex items-center justify-between gap-2 flex-wrap pb-3 border-b border-[var(--border-primary)]">
+            <SectionDivider
+              title="Multi-Agent Dialog Stream"
+              subtitle={`(${dialogTurns.length} turns)`}
+              icon={<MessageSquare className="w-4 h-4 text-cyan-400" />}
+            />
+            <div className="flex items-center gap-3">
+              {activeSpeaker ? (
+                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-xs font-mono text-cyan-300">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                  Speaking: <strong className="text-white">{activeSpeaker.name}</strong> ({activeSpeaker.voice})
+                </div>
+              ) : (
+                <span className="text-xs font-mono text-slate-500">Idle / Completed</span>
+              )}
+              <button
+                type="button"
+                onClick={handleToggleVoice}
+                className={`btn btn-sm flex items-center gap-1.5 ${voiceEnabled ? 'btn-primary' : 'btn-secondary'}`}
+                title={voiceEnabled ? 'TTS is audible for multi-agent interactions' : 'TTS is muted'}
+              >
+                {voiceEnabled ? <Volume2 className="w-3.5 h-3.5 text-cyan-300" /> : <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
+                <span className="text-xs font-mono">{voiceEnabled ? 'Audible TTS' : 'TTS Muted'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-4">
+            {dialogTurns.map((turn) => {
+              const colorInfo = AGENT_COLORS[turn.agentId] || { badge: 'bg-slate-800 text-slate-300 border-slate-700', border: 'border-slate-800', text: 'text-slate-200' };
+              return (
+                <div
+                  key={turn.id}
+                  className={`panel-card p-4 space-y-2 border transition-all ${colorInfo.border} ${turn.status === 'streaming' ? 'bg-cyan-950/20' : ''}`}
+                >
+                  <div className="flex justify-between items-center flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${colorInfo.badge}`}>
+                        {turn.name} (@{turn.agentId})
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1 bg-slate-900/60 px-2 py-0.5 rounded border border-slate-800">
+                        🎙️ voice: <strong className="text-slate-200">{turn.voice}</strong>
+                      </span>
+                    </div>
+                    <StatusBadge status={turn.status === 'streaming' ? 'info' : 'success'}>
+                      {turn.status === 'streaming' ? 'Speaking...' : 'Turn Complete'}
+                    </StatusBadge>
+                  </div>
+
+                  <div className="bg-deep p-3.5 rounded-xl text-xs text-slate-200 font-mono whitespace-pre-wrap max-h-80 overflow-y-auto border border-slate-800/80 leading-relaxed">
+                    {turn.text || <span className="text-slate-500 italic">Thinking and preparing response...</span>}
+                    {turn.status === 'streaming' && <span className="inline-block w-2 h-3.5 ml-1 bg-cyan-400 animate-pulse align-middle" />}
+                  </div>
+                </div>
+              );
+            })}
+
+            {!dialogTurns.length && (
+              <div className="panel-card p-8 text-center text-slate-500 font-mono text-xs">
+                No active multi-agent dialog. Execute a solo, panel, or debate run above to stream live agent interactions with audible TTS.
+              </div>
+            )}
+          </div>
+        </PanelCard>
       )}
 
       {/* Runs Tab */}

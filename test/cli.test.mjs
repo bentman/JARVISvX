@@ -273,3 +273,25 @@ test('a failed turn exits nonzero in both output modes, and a successful command
     assert.equal((await cli(['settings', 'get'], { env })).code, 0);
   });
 });
+
+test('jarvis agent runs lists runs and inspects run by id', async () => {
+  await withDaemon(async ({ env, daemon }) => {
+    const seededRun = daemon.jarvis.db.createAgentRun({
+      agent_id: 'architect',
+      adapter: 'acp',
+      mode: 'solo',
+      objective: 'Evaluate architectural seams'
+    });
+    daemon.jarvis.db.updateAgentRun(seededRun.id, { status: 'completed', result: 'Architectural evaluation complete.' });
+
+    const list = await cli(['agent', 'runs'], { env });
+    assert.equal(list.code, 0);
+    assert.ok(list.stdout.includes(seededRun.id));
+    assert.ok(list.stdout.includes('architect'));
+
+    const detail = await cli(['agent', 'runs', seededRun.id], { env });
+    assert.equal(detail.code, 0);
+    assert.ok(detail.stdout.includes('"status": "completed"'));
+    assert.ok(detail.stdout.includes('Architectural evaluation complete.'));
+  });
+});

@@ -215,11 +215,7 @@ export function VoiceHudView() {
                       ? 'border-cyan-500 text-cyan-300'
                       : 'border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
-                  style={
-                    isSelected
-                      ? { backgroundColor: '#0a1825' }
-                      : { backgroundColor: '#06111a' }
-                  }
+                  style={{ backgroundColor: isSelected ? 'var(--surface-card)' : 'var(--surface-deep)' }}
                 >
                   <span className={`font-medium text-xs ${isSelected ? 'text-cyan-300' : 'text-slate-200'}`}>{v.name}</span>
                   {isSelected ? (

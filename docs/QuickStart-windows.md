@@ -29,23 +29,28 @@ npm run desktop
 First run downloads the wake-word, Whisper, and Kokoro model bundles into `models/`. Default voice: `bf_isabella`. Closing the window hides it to the tray; use **Quit** from the tray menu to exit fully.
 
 **CLI:**
-
+ 
+Direct in-repo execution:
 ```powershell
-npm link
+npm run cli
+# or with arguments:
+npm run cli -- ask "Hello"
+```
+
+Or load the session helper into your current PowerShell session (no global npm symlinks):
+```powershell
+. .\scripts\use-jarvis.ps1
 jarvis
 ```
 
+For a permanent standalone command across any directory without touching `npm link`, run `.\scripts\install-cli.ps1`.
+
 `jarvis` attaches to a running daemon, or starts one, automatically. See [OperatorsGuide-CLI.md](OperatorsGuide-CLI.md) for the full command reference.
 
-> **`npm link` fails with `EEXIST ... AppData\Roaming\npm\jarvis`?** That's npm's own
-> global command shim, not JARVIS data — it's written once per machine the first time
-> you link, and re-cloning or deleting the repo doesn't clear it, so a second `npm link`
-> (from this clone or any other) collides with the one already there. Fix once with:
+> **Legacy `npm link` cleanup:** If you previously ran `npm link`, remove npm's global symlink to prevent npm errors:
 > ```powershell
-> npm uninstall -g jarvis
-> npm link
+> npm uninstall -g jarvis jarvisvx
 > ```
-> (or `npm link --force` to overwrite it directly).
 
 ## Configuration
 

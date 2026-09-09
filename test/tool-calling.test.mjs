@@ -121,6 +121,40 @@ test('chat() executes a read-only tool call mid-turn and continues the conversat
   }
 });
 
+test('chat() persists executed tool results into assistant message when no prose is emitted', async () => {
+  const { db, close } = tempDb();
+  try {
+    const app = createJarvisApp({ database: db });
+    let round = 0;
+    let receivedToolMessage = null;
+    useProvider(app, {
+      id: 'fake-prose-less', label: 'Proseless tool provider', supportsToolCalling: true,
+      async listModels() { return ['fake-model']; },
+      async *streamChat({ messages }) {
+        round += 1;
+        if (round === 1) {
+          yield { type: 'tool_call', id: 'call-1', name: 'diagnostics', arguments: {} };
+          return;
+        }
+        receivedToolMessage = messages.find((m) => m.role === 'tool');
+      },
+    });
+
+    const events = [];
+    for await (const event of app.chat({ content: 'run diagnostics', providerId: 'fake-prose-less', model: 'fake-model' })) events.push(event);
+
+    assert.ok(receivedToolMessage, 'tool result message was received by provider');
+    assert.ok(receivedToolMessage.content.includes('[Remaining tool rounds: 3]'), 'remaining tool rounds budget was communicated');
+
+    const conversationId = events[0].conversationId;
+    const assistantMessage = db.messages(conversationId).find((m) => m.role === 'assistant');
+    assert.ok(assistantMessage, 'assistant message was saved to database');
+    assert.ok(assistantMessage.content.includes('Ran `diagnostics`:'), 'tool result fallback was persisted into message');
+  } finally {
+    close();
+  }
+});
+
 test('chat() pauses a turn and requests approval before running a write tool, then proceeds once allowed', async () => {
   const { directory, db, close } = tempDb();
   try {

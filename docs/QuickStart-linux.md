@@ -36,23 +36,27 @@ First run downloads the wake-word, Whisper, and Kokoro model bundles into `model
 
 **CLI:**
 
+Direct in-repo execution:
 ```bash
-npm link
+npm run cli
+# or with arguments:
+npm run cli -- ask "Hello"
+```
+
+Or load the session helper into your current shell session (no global npm symlinks):
+```bash
+source scripts/use-jarvis.sh
 jarvis
 ```
 
+For a permanent standalone command across any directory without touching `npm link`, run `./scripts/install-cli.sh`.
+
 `jarvis` attaches to a running daemon, or starts one, automatically. See [OperatorsGuide-CLI.md](OperatorsGuide-CLI.md) for the full command reference.
 
-> **`npm link` fails with `EEXIST`?** That's npm's own global command shim, not JARVIS
-> data — it's written once per machine the first time you link, and re-cloning or
-> deleting the repo doesn't clear it, so a second `npm link` (from this clone or any
-> other) collides with the one already there. Find where npm put it with
-> `npm config get prefix`, then fix once with:
+> **Legacy `npm link` cleanup:** If you previously ran `npm link`, remove npm's global symlink to prevent npm errors:
 > ```bash
-> npm uninstall -g jarvis
-> npm link
+> npm uninstall -g jarvis jarvisvx
 > ```
-> (or `npm link --force` to overwrite it directly).
 
 ## Configuration
 
