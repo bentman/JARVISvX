@@ -118,20 +118,17 @@ export const api = {
   effectiveSettings: () => json<EffectiveSettings>('/api/settings/effective'),
   cancel: (id: string, turnId?: string) => json<{ cancelled: boolean }>(`/api/chat/${id}/cancel`, { method: 'POST', body: JSON.stringify({ turnId }) }),
 
-  // MCP Servers API
   mcpServers: () => json<{ servers: McpServer[] }>('/api/mcp'),
   addMcpServer: (data: { name: string; type?: string; endpoint: string; tools?: McpTool[] }) => json<McpServer>('/api/mcp', { method: 'POST', body: JSON.stringify(data) }),
   pingMcpServer: (id: string) => json<{ status: 'unknown' | 'connected' | 'error'; latencyMs: number | null; failureReason: string | null }>(`/api/mcp/${id}/ping`, { method: 'POST', body: '{}' }),
   executeMcpTool: (id: string, toolName: string, params: Record<string, unknown> = {}, approvals: string[] = []) => json<{ success: boolean; tool: string; output: string; durationMs: number }>(`/api/mcp/${id}/tools/${toolName}/execute`, { method: 'POST', body: JSON.stringify({ ...params, approvals }) }),
   deleteMcpServer: (id: string) => json<{ removed: boolean }>(`/api/mcp/${id}`, { method: 'DELETE' }),
 
-  // Model Orchestration API
   orchestration: () => json<{ settings: ModelConfig; hardware: HardwareProfile }>('/api/orchestration'),
   updateOrchestration: (data: Partial<ModelConfig>) => json<ModelConfig>('/api/orchestration', { method: 'POST', body: JSON.stringify(data) }),
   pingLocalEndpoint: (endpoint?: string) => json<{ status: string; latencyMs: number; endpoint: string; models: string[] }>('/api/orchestration/ping-endpoint', { method: 'POST', body: JSON.stringify({ endpoint }) }),
   hardwareProfile: () => json<HardwareProfile>('/api/orchestration/hardware'),
 
-  // Slash Skills API
   skills: () => json<SkillModule[]>('/api/skills'),
   addSkill: (data: Partial<SkillModule>) => json<SkillModule>('/api/skills', { method: 'POST', body: JSON.stringify(data) }),
   updateSkill: (id: string, data: Partial<SkillModule>) => json<SkillModule>(`/api/skills/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -141,13 +138,11 @@ export const api = {
   // Skill import accepts repository coordinates or GitHub URLs; export returns SKILL.md.
   importSkill: (source: string) => json<SkillModule>('/api/skills/import', { method: 'POST', body: JSON.stringify({ source }) }),
   exportSkill: (id: string) => json<SkillExport>(`/api/skills/${id}/export`),
-  // Memory Center API
   memories: (category?: string) => json<MemoryItem[]>(`/api/memory${category ? `?category=${encodeURIComponent(category)}` : ''}`),
   addMemory: (data: Partial<MemoryItem>) => json<MemoryItem>('/api/memory', { method: 'POST', body: JSON.stringify(data) }),
   updateMemory: (id: string, data: Partial<MemoryItem>) => json<MemoryItem>(`/api/memory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteMemory: (id: string) => json<{ removed: boolean }>(`/api/memory/${id}`, { method: 'DELETE' }),
   searchMemories: (query: string, category?: string) => json<MemoryItem[]>('/api/memory/search', { method: 'POST', body: JSON.stringify({ query, category }) }),
-  // Agent Runtime API
   agents: () => json<AgentProfile[]>('/api/agents'),
   agent: (id: string) => json<AgentProfile>(`/api/agents/${id}`),
   agentEditorOptions: () => json<AgentEditorOptions>('/api/agents/editor-options'),

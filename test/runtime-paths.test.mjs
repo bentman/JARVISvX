@@ -8,9 +8,6 @@ import { TARGETS, packagerOptions, selectTarget } from '../scripts/package-deskt
 
 const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-paths-'));
 
-// ---------------------------------------------------------------------------
-// Layout
-// ---------------------------------------------------------------------------
 
 test('source execution resolves every location under the installation directory', () => {
   const paths = createRuntimePaths({ root: PROJECT_ROOT, env: {} });
@@ -89,9 +86,6 @@ test('ensureRuntimePaths creates every directory and names the location it could
   }
 });
 
-// ---------------------------------------------------------------------------
-// Desktop packaging targets
-// ---------------------------------------------------------------------------
 
 test('packaging declares its desktop targets and refuses an undeclared pair', () => {
   assert.deepEqual(Object.keys(TARGETS).sort(), ['linux-x64', 'win32-x64']);

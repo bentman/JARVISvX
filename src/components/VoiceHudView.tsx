@@ -129,7 +129,6 @@ export function VoiceHudView() {
 
   return (
     <div className="panel-surface panel-content">
-      {/* Header */}
       <PanelHeader
         icon={<Radio className="w-5 h-5 text-cyan-400" />}
         title="Voice Control Center"
@@ -153,7 +152,6 @@ export function VoiceHudView() {
         </PanelCard>
       )}
 
-      {/* Hero Presence Card */}
       <PanelCard hover={false} className="voice-presence-card">
         <div className="voice-presence-layout">
           <VoiceOrb
@@ -194,9 +192,7 @@ export function VoiceHudView() {
         </div>
       </PanelCard>
 
-      {/* 2-Column Grid: Settings & Speech Transcript */}
       <div className="panel-grid two voice-hud-grid">
-        {/* Column 1: Voice Persona Selector */}
         <PanelCard className="voice-persona-card">
           <SectionDivider
             title="TTS Voice Persona"
@@ -229,7 +225,6 @@ export function VoiceHudView() {
           </div>
         </PanelCard>
 
-        {/* Column 2: Speech Transcript Log */}
         <PanelCard>
           <SectionDivider
             title="Speech Log"

@@ -1,6 +1,6 @@
 # ADR 0004: Runtime storage ownership
 
-Status: Accepted
+Status: Implemented
 Date: 2026-08-25
 
 ## Context
@@ -28,11 +28,10 @@ covering `dataRoot`, `cacheRoot`, `tempRoot`, `modelRoot`, `profileRoot`,
 `sessionRoot`, `logRoot`, `crashRoot`, `agentConfigPath`, and the database,
 discovery, lock, and provider-key files. `startDaemon()` accepts the set and
 threads it into the database, voice runtime, model bootstrap, and agent
-registry. No consumer computes a writable location for itself.
+registry. All consumers receive writable paths from this injected configuration.
 
-**The caller owns the root.** The constructor resolves a layout under whatever
-root it is given and does not decide where that root is. Source execution passes
-the installation directory. `electron/main.mjs` owns packaged-path discovery and
+**The caller owns the root.** The constructor resolves a layout relative to the
+root provided by the caller. Source execution passes the installation directory. `electron/main.mjs` owns packaged-path discovery and
 passes the directory holding the executable, so packaged state sits beside the
 application rather than inside its archive. Immutable assets — the built
 renderer and the window icon — continue to resolve from the code location and
@@ -64,8 +63,8 @@ converges; publication does not depend on renaming onto an existing directory,
 which is not portable.
 
 **Agent overrides are runtime state.** The registry writes to `agentConfigPath`
-under the data root, and that file is the only override source; there is no seed
-file beside the source tree. Desktop packaging excludes `.env`.
+under the data root, and that file acts as the exclusive override source.
+Desktop packaging excludes `.env`.
 
 **Declared packaging targets.** `scripts/package-desktop.mjs` names its
 platform/arch targets in a table with the icon each one uses. The host target is
@@ -74,15 +73,16 @@ selected by default; an undeclared pair is refused before packaging starts.
 ## Consequences
 
 - Relocating state is a change to one resolved set, not to every module.
-- A packaged build writes nothing beneath `app.asar`, and an installation
-  directory that cannot be written to is reported instead of worked around.
+- A packaged build directs all mutable writes to the directory beside the
+  executable, and write failures to the installation directory produce an
+  explicit error.
 - Model downloads, HTTP asset serving, and the desktop synthesis worker observe
   one model installation.
 - A database and its file-backed key travel together, and a separation is caught
   at startup rather than surfacing as unreadable credentials later.
-- Relocating a data root moves the operator's directory, contents and all; an
-  interrupted move never leaves the operator without a complete copy.
-- Saving an agent profile no longer modifies a tracked file, and the profile
-  survives reinstalling over the source tree.
+- Relocating a data root moves the operator's directory atomically through
+  staging, preserving complete data if interrupted.
+- Agent profile modifications persist to the runtime data root, preserving
+  configuration across source tree updates.
 - Adding a desktop target is a table entry; building the artifacts each target
   names is a separate platform check.

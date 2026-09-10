@@ -154,7 +154,6 @@ export function MemoryCenterView() {
 
   return (
     <div className="panel-surface panel-content">
-      {/* Header */}
       <PanelHeader
         icon={<Brain className="w-5 h-5 text-cyan-400" />}
         title="Memory Center"
@@ -190,7 +189,6 @@ export function MemoryCenterView() {
         </PanelCard>
       )}
 
-      {/* Telemetry Stats Grid */}
       <div className="panel-grid four font-mono">
         <div className="stat-box">
           <div className="title">
@@ -233,10 +231,8 @@ export function MemoryCenterView() {
         </div>
       </div>
 
-      {/* Filter Tabs & Search Bar */}
       <PanelCard gap="none">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-          {/* Category Tabs */}
           <div className="flex items-center gap-2 bg-elevated p-2 rounded-xl border border-slate-800 overflow-x-auto font-mono text-xs">
             {categoryTabs.map((tab) => {
               const isActive = activeCategory === tab.id;
@@ -261,7 +257,6 @@ export function MemoryCenterView() {
             })}
           </div>
 
-          {/* Search Box */}
           <div className="relative min-w-40">
             <Search className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
             <input
@@ -276,7 +271,6 @@ export function MemoryCenterView() {
         </div>
       </PanelCard>
 
-      {/* Memory Cards Grid */}
       <div className="panel-grid three">
         {memories.map((m) => (
           <PanelCard key={m.id} padding="compact" hover={false}>
@@ -331,7 +325,6 @@ export function MemoryCenterView() {
         )}
       </div>
 
-      {/* Modal Form for Add/Edit Memory */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

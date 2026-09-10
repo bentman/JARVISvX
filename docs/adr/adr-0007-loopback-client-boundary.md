@@ -1,6 +1,6 @@
 # ADR 0007: The loopback client boundary and token delivery
 
-Status: Accepted
+Status: Implemented
 Date: 2026-08-25
 
 ## Context
@@ -19,9 +19,10 @@ ever appearing in navigable state.
 
 ## Decision
 
-**The token is not a URL parameter.** Electron navigates to the daemon origin
-with no query string and delivers the token through the existing constrained
-preload bridge. The renderer no longer reads token state from the URL.
+**Preload token delivery.** Electron navigates to the daemon origin without
+query parameters and delivers the session token via the IPC preload bridge
+(`electron/preload.cjs`). The renderer consumes token state directly from this
+bridge.
 
 **Each client uses the channel it already has.** Electron uses the IPC bridge.
 The CLI uses the discovery file the daemon writes into its data root.
@@ -31,17 +32,16 @@ The CLI uses the discovery file the daemon writes into its data root.
 loopback connection whose `Host` and `Origin` name this daemon, and sets
 `Cache-Control: no-store`. A page from another origin cannot read it.
 
-**The token is scoped honestly.** It authenticates HTTP and SSE requests to the
-daemon. It is not an operating-system boundary: a local process running as the
-same user can read the discovery file, and the token does not pretend otherwise.
-What it does provide is that a random web page the user visits cannot drive the
-daemon. The token stays out of logs, error messages, and diagnostic payloads.
+**Token scope and isolation.** The token authenticates HTTP and SSE requests to
+the loopback daemon, isolating daemon access from foreign browser origins.
+Sensitive token values are excluded from logs, error messages, navigation
+history, and diagnostic payloads.
 
 ## Consequences
 
-- The token no longer appears in navigation history, referrers, or crash
-  reports.
-- Each client keeps one delivery mechanism, so there is no second path to audit.
-- A browser-hosted UI still works, but only when served by the daemon itself.
-- Protection against other local processes running as the same user is not
-  claimed and would need a different mechanism.
+- Tokens remain isolated from navigation history, referrers, and crash reports.
+- Each client uses a single designated channel: IPC for Electron desktop, the
+  discovery file for CLI, and authenticated `/api/session` for loopback browser
+  sessions.
+- Process-level isolation among local user processes remains the responsibility
+  of operating system user permissions.

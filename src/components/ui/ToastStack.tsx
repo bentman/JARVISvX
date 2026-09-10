@@ -8,7 +8,6 @@ export interface ToastStackProps {
   onDismiss: (id: number) => void;
 }
 
-/** Floating stack of save/error confirmations — see src/hooks/useToast.ts. */
 export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
   if (!toasts.length) return null;
   return (

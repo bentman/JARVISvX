@@ -32,21 +32,17 @@ test('buildCapabilityRegistry sources MCP-declared tools plus the two core app t
     const tools = buildCapabilityRegistry(app);
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
 
-    // MCP-declared tools present (from the seeded mcp-fs/mcp-git/mcp-sqlite servers).
     assert.ok(byName.read_workspace_file, 'read_workspace_file should be registered');
     assert.ok(byName.list_workspace_directory, 'list_workspace_directory should be registered');
     assert.ok(byName.git_status, 'git_status should be registered');
     assert.ok(byName.execute_query, 'execute_query should be registered');
 
-    // Core app tools not owned by an MCP server.
     assert.ok(byName.diagnostics, 'diagnostics should be registered');
     assert.ok(byName.propose_workspace_edit, 'propose_workspace_edit should be registered');
 
-    // No duplicate tool names — each appears exactly once.
     const names = tools.map((t) => t.name);
     assert.equal(new Set(names).size, names.length, 'tool names should be unique');
 
-    // Permission classification: only genuinely mutating tools require approval.
     assert.equal(byName.write_workspace_file.permission, 'approval-required');
     assert.equal(byName.read_workspace_file.permission, 'read-only');
     assert.equal(byName.list_workspace_directory.permission, 'read-only');
@@ -209,7 +205,6 @@ test('chat() sends no tools and no capability section to a provider that has not
   }
 });
 
-// --- Provider-level SSE/NDJSON tool-call parsing ---
 
 async function withServer(handler, run) {
   const server = http.createServer(handler);
@@ -266,7 +261,6 @@ test('OllamaProvider.streamChat parses a native tool_calls response', async () =
   });
 });
 
-// --- Skills as model-callable capabilities ---
 
 test('buildCapabilityRegistry exposes application-owned skills and withholds user-authored and disabled ones', () => {
   const { db, close } = tempDb();
@@ -330,7 +324,6 @@ test('chat() invokes a skill through the tool-calling loop the same way /slash w
   }
 });
 
-// --- Agent delegation as a model-callable capability ---
 
 // Deterministic in-process adapters isolate capability behavior from installed CLIs.
 function useProcessAgent(app, agentId, respond) {

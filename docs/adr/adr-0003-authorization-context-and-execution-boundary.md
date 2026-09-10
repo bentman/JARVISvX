@@ -1,6 +1,6 @@
 # ADR 0003: One authorization context and execution boundary
 
-Status: Accepted
+Status: Implemented
 Date: 2026-08-24
 Supersedes parts of [ADR 0002](adr-0002-unified-capability-registry.md)
 
@@ -34,10 +34,11 @@ cannot mark its own operation authorized.
 **Daemon approval.** `POST /api/approvals` records an approval for one exact
 action and target in `authorization_grants`. A client submits the returned grant
 id as `approvals` on its request; the daemon consumes it in the statement that
-reads it, so a grant is single-use and expires unused. Request booleans no longer
-appear on `/api/chat` or `/api/agents/run`. Two grant targets name a selection
-whose concrete value the turn resolves: `auto` for the provider routing selects,
-`any` for the mutating capabilities the model calls inside the approved turn.
+reads it, so a grant is single-use and expires unused. `/api/chat` and
+`/api/agents/run` accept authorization grant IDs in `approvals`. Two grant
+targets name a selection whose concrete value the turn resolves: `auto` for the
+provider routing selects, `any` for the mutating capabilities the model calls
+inside the approved turn.
 
 **Permission classes.** A capability is `read-only` or `approval-required`.
 `read-only` bounds both effect and data visibility. MCP tools default to
@@ -77,32 +78,32 @@ rejects the run with `unsupported_policy` before the process starts. Runs record
 the effective adapter and capability set.
 
 **Profile trust.** Profiles come from two sources only: `DEFAULT_AGENT_PROFILES`
-in code, and the override file at `agentConfigPath` under the data root. No
-profile is read from a workspace root, so an approved directory cannot introduce
-a command. An override may set identity, instructions, voice, capabilities, and
-an adapter and CLI drawn from the application allowlists; its command follows the
-CLI. A profile naming an unknown adapter, CLI, capability, a command disagreeing
-with its CLI, or any out-of-scope field is rejected with its file path and
-profile id before it enters the registry.
+in code, and the override file at `agentConfigPath` under the data root. Profiles
+load strictly from these two locations, isolating executable commands from
+workspace directories. An override may set identity, instructions, voice,
+capabilities, and an adapter and CLI drawn from the application allowlists; its
+command follows the CLI. A profile naming an unknown adapter, CLI, capability, a
+command disagreeing with its CLI, or any out-of-scope field is rejected with its
+file path and profile id before it enters the registry.
 
 **Denial and audit.** A denial reaches no provider, process, endpoint, or write,
 and produces the same typed error for every origin. `authorization_audit` records
-requested, granted, and effective authority separately from the outcome. Provider
-keys, daemon tokens, prompts, and skill source are never authorization evidence.
+requested, granted, and effective authority separately from the outcome.
+Sensitive payloads such as provider keys, daemon tokens, prompts, and skill
+source are excluded from authorization audit records.
 
 ## Consequences
 
 - One policy decision covers desktop, CLI, voice, slash, model, and agent origins.
-- A client that supplies its own approval flag receives nothing; authority exists
-  only as a consumed daemon record.
+- Authority exists exclusively as a consumed daemon grant record issued by
+  `POST /api/approvals`.
 - Approving a mutating capability does not confer agent privilege. Delegating to a
   privileged agent needs both the capability approval and that agent's grant.
 - An operator approves each turn separately: the desktop and terminal controls
   clear as the request is submitted, so a failed, cancelled, or successful turn
   leaves nothing enabled.
-- Skills a user writes or edits stop being model-callable without approval, and
-  the read-only SQLite capability answers only the questions its read models
-  declare.
+- User-authored or edited skills require approval before model invocation, and
+  the read-only SQLite capability serves only its declared read models.
 - A workspace with no approved root cannot read, write, list, run Git tools, or
   give an agent a working directory.
 - A CLI whose argument surface cannot express the requested capability set is

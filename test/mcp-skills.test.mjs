@@ -103,12 +103,10 @@ test('app executes real workspace tools and math skill', async () => {
   const app = createJarvisApp({ database: db, paths: createRuntimePaths({ root: directory, env: { JARVIS_DATA_DIR: directory } }) });
   await app.initializeCore();
 
-  // Test math skill execution
   const calcRes = await app.executeSkill('/calc', '100 / 4 + 5');
   assert.equal(calcRes.success, true);
   assert.ok(calcRes.output.includes('Math Result: 100 / 4 + 5 = 30'));
 
-  // Test workspace file creation and tool execution
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-test-root-'));
   await app.addRoot(rootDir);
 
@@ -267,7 +265,6 @@ test('upgradeBuiltInSkills replaces an untouched stub /search or /code row but l
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
-// --- HTTP MCP transport ---
 
 async function withHttpMcp(handler, run) {
   const server = http.createServer((req, res) => {

@@ -35,7 +35,7 @@ Node.js 24+, ESM (`"type": "module"`). An Express daemon (`lib/daemon.mjs`) owns
 - Source artifacts contain no conversation or session residue. Comments, docstrings, documentation, and tests never reference the development task, coding agent, authoring conversation, implementation phase or diff, previous implementation, temporary planning document, or completed-work document.
 - Positive scope boundaries — say what a module does and which mechanism owns it, not what it "is not."
 - Just-in-time cross-references — link between docs only in hub sections (README's Architecture/Storage tables, an ADR's own Consequences), and only where acting correctly requires reading the target.
-- Non-trivial architecture decisions get a short ADR at `docs/adr/adr-NNNN-<slug>.md`: context, decision, consequences. This repo does not keep a changelog or capability inventory — git history and the current code are the record.
+- Non-trivial architecture decisions get a short ADR at `docs/adr/adr-NNNN-<slug>.md`: context, decision, consequences. ADR status tracks lifecycle against the codebase (`Proposed`, `Accepted`, `Implemented`, `Pending ADR NNNN`, `Superseded by ADR NNNN`). This repo does not keep a changelog or capability inventory — git history and the current code are the record.
 
 ## Security
 

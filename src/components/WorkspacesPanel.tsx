@@ -125,7 +125,6 @@ export function WorkspacesPanel({
         </div>
       </PanelCard>
 
-      {/* Future-Safe Boundary */}
       <PanelCard className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-small font-mono text-cyan-400 uppercase tracking-wider flex items-center gap-2">

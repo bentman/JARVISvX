@@ -1,6 +1,6 @@
 # ADR 0001: Separate provider health and registry routes
 
-Status: Accepted
+Status: Implemented
 Date: 2026-08-18
 
 ## Context
@@ -40,7 +40,6 @@ provider mutation. `src/api.ts` exposes the health contract through
   Express dispatch.
 - Contract consolidation requires coordinated migration of the daemon,
   desktop client, CLI client, and external API consumers.
-- Neither route family decides which provider a turn uses; that selection is
-  owned separately (see
-  [ADR 0005](adr-0005-turn-provider-selection.md)), and `settings` reports its
+- Turn provider selection is owned separately by `lib/orchestrator.mjs` (see
+  [ADR 0005](adr-0005-turn-provider-selection.md)); `settings` reports that
   outcome rather than registry order.

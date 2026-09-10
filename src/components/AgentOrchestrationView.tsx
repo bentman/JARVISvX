@@ -107,7 +107,6 @@ const FALLBACK_EDITOR_OPTIONS: AgentEditorOptions = {
   maxInstructionsLength: 255
 };
 
-// Selected styles use CSS variables because this build has no Tailwind compiler.
 function SelectPill({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
   return (
     <button
@@ -169,7 +168,6 @@ const AGENT_COLORS: Record<string, { badge: string; border: string; text: string
   researcher: { badge: 'bg-blue-500/20 text-blue-300 border-blue-500/40', border: 'border-blue-500/30', text: 'text-blue-400' }
 };
 
-// Create and edit forms share backend-provided options and length limits.
 function AgentFieldsEditor({
   form,
   setForm,
@@ -671,7 +669,6 @@ export function AgentOrchestrationView() {
 
   return (
     <div className="panel-surface panel-content">
-      {/* Header */}
       <PanelHeader
         icon={<Users className="w-5 h-5 text-cyan-400" />}
         title="JARVISvX Agent Runtime"
@@ -711,7 +708,6 @@ export function AgentOrchestrationView() {
         </PanelCard>
       )}
 
-      {/* Trigger Multi-Agent Collaboration Run */}
       <PanelCard padding="compact">
         <SectionDivider
           title="Execute Multi-Agent Run"
@@ -805,7 +801,6 @@ export function AgentOrchestrationView() {
         </form>
       </PanelCard>
 
-      {/* Profiles Tab */}
       {activeTab === 'profiles' && (
         <>
           <PanelCard gap="none">
@@ -847,7 +842,6 @@ export function AgentOrchestrationView() {
         </>
       )}
 
-      {/* Dialog Tab */}
       {activeTab === 'dialog' && (
         <PanelCard gap="none">
           <div className="flex items-center justify-between gap-2 flex-wrap pb-3 border-b border-[var(--border-primary)]">
@@ -916,7 +910,6 @@ export function AgentOrchestrationView() {
         </PanelCard>
       )}
 
-      {/* Runs Tab */}
       {activeTab === 'runs' && (
         <PanelCard gap="none">
           <SectionDivider

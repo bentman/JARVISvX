@@ -53,7 +53,6 @@ else if (command === 'serve') { console.log(`Daemon active at ${(await connect()
 else if (process.stdout.isTTY) render(React.createElement(Tui, { client: await connectOrExit() }));
 else { await connectOrExit(); await repl(); }
 
-// ---- Flag parsing -----------------------------------------------------
 // Supports --flag, --flag=value, and --flag value; `--` remains positional.
 function parseArgs(list, { valueFlags = [] } = {}) {
   const positional = [];
@@ -73,7 +72,6 @@ function parseArgs(list, { valueFlags = [] } = {}) {
 }
 async function readStdin() { const chunks = []; for await (const chunk of process.stdin) chunks.push(chunk); return Buffer.concat(chunks).toString('utf8'); }
 
-// ---- CLI-only commands (no daemon connection required) ----------------
 async function printVersion() { const pkg = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')); console.log(pkg.version); }
 function printHelp() {
   console.log([
@@ -102,7 +100,6 @@ function printHelp() {
   ].join('\n'));
 }
 
-// ---- Daemon-backed commands ---------------------------------------------
 async function ask(rawArgs) {
   const { positional, values } = parseArgs(rawArgs, { valueFlags: ['provider', 'model', 'resume'] });
   let content = positional.join(' ').trim();

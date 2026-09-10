@@ -71,7 +71,6 @@ export function VoiceOrb({
           transform: `scale(${glowScale})`
         }}
       >
-        {/* Inner Subtle Core Highlight */}
         <div
           className="rounded-full shadow-inner"
           style={{

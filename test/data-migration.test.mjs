@@ -6,9 +6,6 @@ import test from 'node:test';
 import { JarvisDatabase, assertCredentialKeyAvailable, resolveDataDirectory, PROJECT_ROOT } from '../lib/database.mjs';
 import { migrateDataDirectory, dataDirectoryInfo } from '../lib/data-migration.mjs';
 
-// ---------------------------------------------------------------------------
-// resolveDataDirectory — path resolution
-// ---------------------------------------------------------------------------
 
 // The default data directory is anchored to the installation, not the caller's cwd.
 test('resolveDataDirectory default does not depend on the current working directory', () => {
@@ -42,9 +39,6 @@ test('resolveDataDirectory resolves relative path against cwd', () => {
   assert.equal(result, path.resolve('./custom/data'));
 });
 
-// ---------------------------------------------------------------------------
-// dataDirectoryInfo — surface shape matches workspace-roots
-// ---------------------------------------------------------------------------
 
 test('dataDirectoryInfo returns correct surface shape', () => {
   const info = dataDirectoryInfo('/some/path/data');
@@ -54,9 +48,6 @@ test('dataDirectoryInfo returns correct surface shape', () => {
   assert.equal(info.editable, false);
 });
 
-// ---------------------------------------------------------------------------
-// migrateDataDirectory — filesystem operations
-// ---------------------------------------------------------------------------
 
 function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-mig-')); }
 
@@ -115,7 +106,6 @@ test('migration with import merges target-only files into source, source wins on
   const dst = path.join(base, 'dst');
   fs.mkdirSync(src, { recursive: true });
   fs.mkdirSync(dst, { recursive: true });
-  // Source has 'jarvis.sqlite'; target has 'extra.txt' and its own 'jarvis.sqlite'
   fs.writeFileSync(path.join(src, 'jarvis.sqlite'), 'source-db');
   fs.writeFileSync(path.join(dst, 'jarvis.sqlite'), 'target-db');
   fs.writeFileSync(path.join(dst, 'extra.txt'), 'target-only');
@@ -123,9 +113,7 @@ test('migration with import merges target-only files into source, source wins on
     prompt: async () => 'import',
   });
   assert.equal(result.action, 'moved');
-  // Source's jarvis.sqlite wins
   assert.equal(fs.readFileSync(path.join(dst, 'jarvis.sqlite'), 'utf8'), 'source-db');
-  // Target-only file survives
   assert.equal(fs.readFileSync(path.join(dst, 'extra.txt'), 'utf8'), 'target-only');
   fs.rmSync(base, { recursive: true, force: true });
 });
@@ -138,7 +126,6 @@ test('non-interactive migration defaults to import when no prompt provided', asy
   fs.mkdirSync(dst, { recursive: true });
   fs.writeFileSync(path.join(src, 'new.db'), 'new');
   fs.writeFileSync(path.join(dst, 'old.db'), 'old');
-  // No prompt — should default to import (both files survive, source wins)
   const result = await migrateDataDirectory(src, dst);
   assert.equal(result.action, 'moved');
   assert.ok(fs.existsSync(path.join(dst, 'new.db')));

@@ -255,7 +255,6 @@ test('automatic selection omits providerId from the request; a pinned provider s
 
 test('a failed turn exits nonzero in both output modes, and a successful command exits zero', async () => {
   await withDaemon(async ({ env }) => {
-    // No provider is configured, so the turn cannot complete.
     const plain = await cli(['ask', 'hello'], { env });
     assert.notEqual(plain.code, 0, 'a turn that never ran must not report success');
 
@@ -263,11 +262,9 @@ test('a failed turn exits nonzero in both output modes, and a successful command
     assert.notEqual(json.code, 0, 'the JSON mode reports the same result');
     assert.ok(json.stdout.includes('"type":"error"'), 'and still emits the terminal event');
 
-    // An unknown agent id is a failed request, not a silent success.
     const unknown = await cli(['agent', 'run', 'not-an-agent', 'do something'], { env });
     assert.notEqual(unknown.code, 0);
 
-    // Reads that succeed keep a zero status.
     assert.equal((await cli(['doctor'], { env })).code, 0);
     assert.equal((await cli(['agents'], { env })).code, 0);
     assert.equal((await cli(['settings', 'get'], { env })).code, 0);

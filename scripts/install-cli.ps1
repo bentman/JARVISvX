@@ -17,12 +17,10 @@ if (-not (Test-Path -LiteralPath $TargetDirectory)) {
 
 $ResolvedTarget = (Resolve-Path -LiteralPath $TargetDirectory).Path
 
-# 1. Write jarvis.cmd batch shim
 $CmdPath = Join-Path $ResolvedTarget "jarvis.cmd"
 $CmdContent = "@echo off`r`nnode `"$CliEntry`" %*`r`n"
 [System.IO.File]::WriteAllText($CmdPath, $CmdContent, [System.Text.Encoding]::ASCII)
 
-# 2. Write jarvis.ps1 PowerShell shim
 $Ps1Path = Join-Path $ResolvedTarget "jarvis.ps1"
 $Ps1Content = "& node `"$CliEntry`" @args`r`n"
 [System.IO.File]::WriteAllText($Ps1Path, $Ps1Content, [System.Text.Encoding]::ASCII)
@@ -31,7 +29,6 @@ Write-Host "Created standalone JARVIS CLI shims in '$ResolvedTarget':"
 Write-Host "  - $CmdPath"
 Write-Host "  - $Ps1Path"
 
-# 3. Check if target directory is on PATH
 $CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 $PathEntries = ($CurrentPath -split ";") | Where-Object { $_ }
 $OnPath = $PathEntries | Where-Object { (Resolve-Path $_ -ErrorAction SilentlyContinue)?.Path -eq $ResolvedTarget }
@@ -46,7 +43,6 @@ if (-not $OnPath) {
     Write-Host "'$ResolvedTarget' is on your PATH. You can run 'jarvis' from any terminal." -ForegroundColor Green
 }
 
-# 4. Check for legacy npm link conflicts
 $ExistingNpmShim = Join-Path $env:APPDATA "npm\jarvis.cmd"
 if (Test-Path -LiteralPath $ExistingNpmShim) {
     Write-Host ""

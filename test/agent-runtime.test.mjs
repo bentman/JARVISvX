@@ -150,29 +150,24 @@ test('AgentRegistry.updateAgent restricts built-in agents to wiring fields only,
     const registry = new AgentRegistry({ configPath });
     await registry.load();
 
-    // Built-in: adapter/cli/voice/capabilities may change...
     const updated = await registry.updateAgent('architect', { cli: 'codex', voice: 'af_sarah' });
     assert.equal(updated.cli, 'codex');
     assert.equal(updated.command, 'codex');
     assert.equal(updated.voice, 'af_sarah');
-    assert.equal(updated.name, 'Architect'); // identity unchanged
+    assert.equal(updated.name, 'Architect');
 
-    // ...but name/instructions are locked.
     await assert.rejects(registry.updateAgent('architect', { name: 'New Name' }), /built-in role/);
     await assert.rejects(registry.updateAgent('architect', { instructions: 'new instructions' }), /built-in role/);
 
-    // The override survives a fresh load from disk.
     const reloaded = new AgentRegistry({ configPath });
     await reloaded.load();
     assert.equal(reloaded.get('architect').cli, 'codex');
 
-    // Custom agents can have every field edited, including name/instructions.
     const custom = await registry.createAgent({ name: 'Scout', cli: 'claude', instructions: 'look around' });
     const editedCustom = await registry.updateAgent(custom.id, { name: 'Scout Prime', instructions: 'look far around' });
     assert.equal(editedCustom.name, 'Scout Prime');
     assert.equal(editedCustom.instructions, 'look far around');
 
-    // Unknown agent id fails with a 404-flavored error.
     await assert.rejects(registry.updateAgent('does-not-exist', { voice: 'af_bella' }), (err) => err.code === 'not_found');
   });
 });
@@ -208,7 +203,6 @@ test('PolicyGate evaluates capability intersection and workspace boundary', asyn
   assert.deepEqual(res.effectiveCapabilities, ['workspace.write']);
   assert.equal(res.processMode, 'write');
 
-  // Test policy rejection when agent lacks required capability
   const missingRes = policy.evaluate({
     agent: { id: 'builder', capabilities: ['workspace.read'] },
     requestedCapabilities: ['workspace.write']
@@ -563,7 +557,6 @@ test('startAgentRun returns running record immediately and completes asynchronou
   }
 });
 
-// --- agents_send follow-up delivery ---
 
 test('AcpAdapter.send writes to a still-running interactive process, and fails honestly once it has exited', async () => {
   const acp = new AcpAdapter();
@@ -701,7 +694,6 @@ test('multi-agent run separates reasoning from dialog tokens and emits speaker p
   const events = [];
   const unsubscribe = app.events.subscribe((event) => events.push(event));
 
-  // Set up agents that produce both internal reasoning and dialog
   for (const id of ['architect', 'reviewer']) {
     const agent = app.agentRuntime.registry.get(id);
     app.agentRuntime.registry.profiles.set(id, { ...agent, adapter: 'process', capabilities: ['workspace.read'] });
@@ -727,13 +719,11 @@ test('multi-agent run separates reasoning from dialog tokens and emits speaker p
     });
 
     assert.equal(run.status, 'completed');
-    // Internal thinking must not be in the visible result
     assert.ok(!run.result.includes('<think>'));
     assert.ok(!run.result.includes('Analyzing'));
     assert.ok(run.result.includes('Conclusion from architect'));
     assert.ok(run.result.includes('Conclusion from reviewer'));
 
-    // Verify published events
     const startEvents = events.filter((e) => e.type === 'agent-start');
     const tokenEvents = events.filter((e) => e.type === 'agent-token');
     const reasoningEvents = events.filter((e) => e.type === 'agent-reasoning');

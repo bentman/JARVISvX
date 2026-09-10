@@ -1,6 +1,6 @@
 # ADR 0005: One provider selection per turn
 
-Status: Accepted
+Status: Implemented
 Date: 2026-08-25
 
 ## Context
@@ -30,8 +30,8 @@ than the configured mode.
 
 **Precedence stops at the first supplied input.** An explicit user id, an agent
 profile pin, and a `provider:<id>` mode are each resolved against the registry
-or refused. None falls through to a lower source, so a bad id fails as itself
-rather than being replaced by a different provider.
+or refused. Each input is validated independently against the registry, failing
+immediately on unresolved identifiers without falling through.
 
 **One result shape.** A selection is either `{ provider, reason, source }` —
 `source` being `user`, `agent`, `mode-pin`, `policy`, `auto-local`, or
@@ -40,15 +40,14 @@ of `unknown_provider`, `provider_disabled`, `no_eligible_provider`, or
 `cloud_approval_required`. `ProviderRegistry.status()` distinguishes an id that
 names nothing from one that names a disabled provider.
 
-**Eligibility only.** Routing reads whether the turn holds a cloud grant so it
-knows a cloud provider is reachable, and never authorizes. The grant is consumed
-by the single authorization check that already guards transmission, so no second
-approval path exists.
+**Eligibility only.** Routing checks whether the turn holds a cloud grant to
+determine cloud provider reachability. Grant consumption is owned exclusively by
+the transmission authorization check in `lib/application.mjs`.
 
-**No tag crossing.** `local_only` and `cloud_only` refuse rather than substitute.
-Auto mode selects an eligible local provider, escalates to cloud only when a rule
-matches and the grant is present, and otherwise refuses — the array-order
-fallback is gone.
+**Tag confinement.** `local_only` and `cloud_only` enforce strict tag boundaries
+without provider substitution. Auto mode selects an eligible local provider,
+escalating to cloud only when an escalation rule matches and a cloud grant is
+present.
 
 **Selection happens first.** `chat()` selects before creating a turn message and
 before calling `listModels()`, so an unresolvable id costs nothing.
@@ -67,12 +66,12 @@ their labels from that rather than from local state.
 
 - One code path answers "which provider" for desktop text, desktop voice, TUI,
   one-shot CLI, and agent turns.
-- A mistyped or disabled provider id is reported as that, at the moment it is
-  supplied, instead of running the turn somewhere the operator did not choose.
+- Unresolved or disabled provider IDs fail immediately with a typed error at
+  input time.
 - An operator can see that selection is automatic and, after a turn, which
   provider it actually reached and why.
-- An agent profile pin now has an effect, applies only to agent-originated
-  turns, and outranks the configured mode without outranking an explicit id.
+- Agent profile pins apply exclusively to agent-originated turns, outranking the
+  configured policy mode while deferring to explicit turn overrides.
 - Adding a routing input means adding a precedence step and a `source`, not a
   second resolution site.
 - Health (`GET /api/providers`), registry CRUD (`/api/provider-registry`),

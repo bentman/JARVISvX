@@ -186,7 +186,6 @@ export function ModelOrchestrationView({
 
   return (
     <div className="panel-surface panel-content">
-      {/* View Header */}
       <PanelHeader
         icon={<Cpu className="w-5 h-5 text-cyan-400" />}
         title="Model Orchestration & Execution Policy"
@@ -206,7 +205,6 @@ export function ModelOrchestrationView({
 
 
 
-      {/* Orchestration Mode Selection Cards */}
       <PanelCard gap="none">
         <SectionDivider
           title="Select Execution Policy Mode"
@@ -214,7 +212,6 @@ export function ModelOrchestrationView({
         />
 
         <div className="panel-grid three">
-          {/* AUTO Card */}
           <div
             onClick={() => handleUpdateConfig({ ...modelConfig, mode: 'auto' })}
             className={`cursor-pointer p-4 rounded-xl border transition-all ${
@@ -240,7 +237,6 @@ export function ModelOrchestrationView({
             </p>
           </div>
 
-          {/* LOCAL ONLY Card */}
           <div
             onClick={() => handleUpdateConfig({ ...modelConfig, mode: 'local_only' })}
             className={`cursor-pointer p-4 rounded-xl border transition-all ${
@@ -266,8 +262,6 @@ export function ModelOrchestrationView({
             </p>
           </div>
 
-          {/* CLOUD ONLY Card — reflects whatever cloud provider(s) are actually
-              configured in Providers, instead of a hardcoded "Gemini". */}
           <div
             onClick={() => { if (cloudProviders.length <= 1) void handleUpdateConfig({ ...modelConfig, mode: 'cloud_only' }); }}
             className={`p-4 rounded-xl border transition-all ${cloudProviders.length ? 'cursor-pointer' : ''} ${
@@ -322,7 +316,6 @@ export function ModelOrchestrationView({
         </div>
       </PanelCard>
 
-      {/* Local Model Runner Endpoint Config */}
       <PanelCard gap="none">
         <SectionDivider
           title="Local LLM Server Endpoint Configuration"
@@ -379,7 +372,6 @@ export function ModelOrchestrationView({
           </div>
         )}
 
-        {/* Local Model Weights Matrix */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <label className="form-label">Select Active Local Model Weights</label>
@@ -431,7 +423,6 @@ export function ModelOrchestrationView({
         </div>
       </PanelCard>
 
-      {/* Auto-Escalation Threshold Rules */}
       <PanelCard gap="none">
         <SectionDivider
           title="Cloud Escalation Threshold Rules"

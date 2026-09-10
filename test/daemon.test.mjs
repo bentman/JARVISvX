@@ -169,7 +169,6 @@ test('electron navigation carries no daemon token', async () => {
   assert.ok(!client.includes("params.get('daemon')"), 'the renderer does not parse token state out of the URL');
 });
 
-// --- Single-instance ownership ---
 
 async function withDataRoot(fn) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jarvis-lock-'));

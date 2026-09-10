@@ -269,7 +269,6 @@ export function McpSkillsView() {
 
   return (
     <div className="panel-surface panel-content">
-      {/* Header */}
       <PanelHeader
         icon={<Zap className="w-5 h-5 text-cyan-400" />}
         title="MCP Servers & Dynamic Slash Skills"
@@ -312,7 +311,6 @@ export function McpSkillsView() {
         </PanelCard>
       )}
 
-      {/* SECTION 1: MCP SERVERS — annotated as already-standardized; left untouched. */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="panel-section-title">
@@ -365,7 +363,6 @@ export function McpSkillsView() {
                 <div className="text-xs font-mono text-slate-400 truncate">{srv.endpoint}</div>
               </div>
 
-              {/* Exposed Tools */}
               <div className="space-y-2 pt-3 border-t border-slate-800">
                 <span className="text-xs font-mono text-slate-400 block">Exposed Tools ({srv.tools.length}):</span>
                 <div className="flex flex-wrap gap-1">
@@ -387,7 +384,6 @@ export function McpSkillsView() {
         </div>
       </div>
 
-      {/* SECTION 2: INTEGRATED & CUSTOM SLASH SKILLS */}
       <div className="space-y-4 pt-4 border-t border-slate-800">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h3 className="panel-section-title">
@@ -407,8 +403,6 @@ export function McpSkillsView() {
           </div>
         </div>
 
-        {/* Real skills.sh import (github.com/vercel-labs/skills' SKILL.md format) —
-            see lib/skills-source.mjs for the fetch/parse logic this calls into. */}
         <PanelCard padding="compact">
           <form onSubmit={handleImportSkill} className="flex items-center gap-2 flex-wrap">
             <Download className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -438,7 +432,6 @@ export function McpSkillsView() {
         </PanelCard>
 
         <div className="mcp-skills-grid">
-          {/* Skill Cards List */}
           <div className="space-y-3 mcp-skill-list">
             {filteredSkills.map((skill) => {
               const isSelected = skill.id === selectedSkillId;
@@ -509,7 +502,6 @@ export function McpSkillsView() {
             })}
           </div>
 
-          {/* Active Skill Inspector & Test Console */}
           {activeSkill ? (
             <div className="panel-card mcp-skill-inspector font-mono">
               <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3 flex-wrap">
@@ -536,7 +528,6 @@ export function McpSkillsView() {
                 </div>
               </div>
 
-              {/* Source Code */}
               <div className="space-y-2">
                 <span className="text-xs text-slate-400 font-bold flex items-center gap-1.5">
                   <Code className="w-3.5 h-3.5 text-cyan-400" /> Subroutine Source Code (JavaScript / Async Function)
@@ -549,7 +540,6 @@ export function McpSkillsView() {
                 </pre>
               </div>
 
-              {/* Interactive Skill Test Console */}
               <div className="space-y-3 pt-3 border-t border-slate-800">
                 <span className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
                   <Play className="w-3.5 h-3.5 text-amber-400" /> Interactive Skill Execution Test Console
@@ -592,7 +582,6 @@ export function McpSkillsView() {
         </div>
       </div>
 
-      {/* MODAL: ADD MCP SERVER */}
       <Modal
         isOpen={showAddServerModal}
         onClose={() => setShowAddServerModal(false)}
@@ -649,7 +638,6 @@ export function McpSkillsView() {
         </form>
       </Modal>
 
-      {/* MODAL: ADD / EDIT SKILL */}
       <Modal
         isOpen={showAddSkillModal}
         onClose={() => setShowAddSkillModal(false)}
@@ -719,7 +707,6 @@ export function McpSkillsView() {
         </form>
       </Modal>
 
-      {/* MODAL: TOOL TESTER */}
       <Modal
         isOpen={Boolean(toolTester)}
         onClose={() => setToolTester(null)}
